@@ -1,0 +1,11 @@
+{
+  "name": "cotafer-iot",
+  "version": "1.0.0",
+  "description": "Cotafer IoT Smart Building Management System",
+  "scripts": {
+    "install:all": "cd server && npm install && cd ../client && npm install",
+    "build": "cd client && npm run build",
+    "start": "cd server && node src/server.js",
+    "postinstall": "npm run install:all && npm run build"
+  }
+}
