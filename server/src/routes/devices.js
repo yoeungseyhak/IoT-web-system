@@ -96,6 +96,20 @@ router.put('/:id', checkCanControl, requireDeviceOnline, (req, res) => {
       }
     }
 
+    // Boom gate full capacity interlock check
+    if (device.type === 'boom-gate' && state.status === 'opened') {
+      const slots = db.prepare('SELECT occupied FROM parking_slots').all();
+      if (slots.length > 0) {
+        const occupied = slots.filter(s => s.occupied === 1 || s.occupied === true).length;
+        const available = Math.max(0, slots.length - occupied);
+        if (available === 0 && req.user.role !== 'admin') {
+          return res.status(400).json({
+            message: 'Cannot open boom gate: Parking floor is at full capacity (0 slots available).'
+          });
+        }
+      }
+    }
+
     // Merge existing state with new state (partial update)
     const newState = { ...existingState, ...state };
 

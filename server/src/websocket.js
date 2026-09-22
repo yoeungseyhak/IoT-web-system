@@ -99,6 +99,27 @@ function setupWebSocket(server) {
                             triggeredBy: 'device',
                             timestamp: Date.now()
                         });
+                    } else if (data.type === 'slot-update' || data.type === 'parking-slot-report') {
+                        const db = getDb();
+                        const slotId = data.slotId || data.id;
+                        const occupiedVal = data.occupied ? 1 : 0;
+                        db.prepare('UPDATE parking_slots SET occupied = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                          .run(occupiedVal, slotId);
+                        
+                        const allSlots = db.prepare('SELECT * FROM parking_slots ORDER BY id ASC').all();
+                        const total = allSlots.length;
+                        const occupiedCount = allSlots.filter(s => s.occupied === 1).length;
+                        const available = Math.max(0, total - occupiedCount);
+                        const stats = { total, occupied: occupiedCount, available, isFull: total > 0 && available === 0 };
+
+                        broadcastToAll({
+                            type: 'slot-update',
+                            slotId,
+                            occupied: data.occupied,
+                            stats,
+                            triggeredBy: 'esp32',
+                            timestamp: Date.now()
+                        });
                     }
                 } catch (e) {
                     console.error("Device message parse error", e);
@@ -135,10 +156,27 @@ function setupWebSocket(server) {
                     state: JSON.parse(d.state || '{}'),
                     automation: getAutomation(d.id)
                 }));
+
+                const slots = db.prepare('SELECT * FROM parking_slots ORDER BY id ASC').all();
+                const parsedSlots = slots.map(s => ({ ...s, occupied: s.occupied === 1 }));
+                const totalSlots = parsedSlots.length;
+                const occupiedCount = parsedSlots.filter(s => s.occupied).length;
+                const availableSlots = Math.max(0, totalSlots - occupiedCount);
+                const parkingStats = {
+                    total: totalSlots,
+                    occupied: occupiedCount,
+                    available: availableSlots,
+                    isFull: totalSlots > 0 && availableSlots === 0
+                };
+                const emergencyRow = db.prepare("SELECT value FROM system_settings WHERE key = 'emergency_mode'").get();
+                const emergencyMode = emergencyRow ? emergencyRow.value : 'normal';
+
                 ws.send(JSON.stringify({
                     type: 'init-state',
                     devices: parsed,
-                    deviceStatus: getDeviceStatus()
+                    deviceStatus: getDeviceStatus(),
+                    parking: { slots: parsedSlots, stats: parkingStats },
+                    emergency: { mode: emergencyMode }
                 }));
 
                 ws.on('message', (message) => {

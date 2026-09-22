@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext, useCallback, useRef } from "react";
 import { AuthContext, WebSocketContext } from "../App";
-import { getDevices } from "../api";
+import { getDevices, getEmergencyStatus, getParkingSlots } from "../api";
 import Navbar from "../components/Navbar";
 import DeviceCard from "../components/DeviceCard";
 import AdminPanel from "../components/AdminPanel";
@@ -9,7 +9,9 @@ import NotificationCenter from "../components/NotificationCenter";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 import AddComponentModal from "../components/AddComponentModal";
 import ReportModal from "../components/ReportModal";
-import { LayoutGrid, Users, Clock, Loader2, Plus, Lock, WifiOff } from "lucide-react";
+import EmergencyBar from "../components/EmergencyBar";
+import ParkingFloor from "../components/ParkingFloor";
+import { LayoutGrid, Users, Clock, Loader2, Plus, Lock, WifiOff, Car } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function DashboardPage() {
@@ -25,6 +27,14 @@ export default function DashboardPage() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [addComponentOpen, setAddComponentOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
+
+  // Priority 1: Emergency System State
+  const [emergencyState, setEmergencyState] = useState({ mode: 'normal' });
+
+  // Priority 2: Parking Slots & Capacity State
+  const [parkingSlots, setParkingSlots] = useState([]);
+  const [parkingStats, setParkingStats] = useState({ total: 0, occupied: 0, available: 0, isFull: false });
+
   const audioCtxRef = useRef(null);
   const lastNotifRef = useRef({});
 
@@ -40,17 +50,36 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Fetch emergency & parking data
+  const fetchEmergencyAndParking = useCallback(async () => {
+    try {
+      const [emData, pkData] = await Promise.all([
+        getEmergencyStatus().catch(() => null),
+        getParkingSlots().catch(() => null)
+      ]);
+      if (emData) setEmergencyState(emData);
+      if (pkData) {
+        setParkingSlots(pkData.slots || []);
+        setParkingStats(pkData.stats || { total: 0, occupied: 0, available: 0, isFull: false });
+      }
+    } catch (e) {
+      console.error("Failed to fetch emergency / parking data", e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDevices();
+    fetchEmergencyAndParking();
     
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         fetchDevices();
+        fetchEmergencyAndParking();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [fetchDevices]);
+  }, [fetchDevices, fetchEmergencyAndParking]);
 
   // Play notification sound using Web Audio API
   const playNotifSound = useCallback(() => {
@@ -98,6 +127,11 @@ export default function DashboardPage() {
       
       if (data.type === 'init-state') {
         setDevices(data.devices || []);
+        if (data.emergency) setEmergencyState(data.emergency);
+        if (data.parking) {
+          setParkingSlots(data.parking.slots || []);
+          setParkingStats(data.parking.stats || { total: 0, occupied: 0, available: 0, isFull: false });
+        }
       }
 
       if (data.type === "device-update") {
@@ -250,6 +284,48 @@ export default function DashboardPage() {
       if (data.type === "report-deleted") {
         window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
       }
+
+      // Priority 1: Emergency System Events
+      if (data.type === "emergency-alert") {
+        setEmergencyState({
+          mode: data.mode,
+          triggeredBy: data.triggeredBy,
+          timestamp: data.timestamp
+        });
+        toast.error(
+          data.mode === "evacuate"
+            ? `🚨 EMERGENCY EVACUATION TRIGGERED by ${data.triggeredBy}!`
+            : `🔒 MASTER LOCKDOWN ACTIVATED by ${data.triggeredBy}!`,
+          { duration: 8000 }
+        );
+        playNotifSound();
+        sendBrowserNotif(
+          "Floor Management - EMERGENCY ALERT",
+          data.mode === "evacuate" ? "EVACUATION PROTOCOL ACTIVE" : "MASTER LOCKDOWN ACTIVE"
+        );
+      }
+
+      if (data.type === "emergency-cleared") {
+        setEmergencyState({ mode: "normal", clearedBy: data.clearedBy, timestamp: data.timestamp });
+        toast.success(`✅ Emergency status cleared by ${data.clearedBy}. Normal operation resumed.`);
+      }
+
+      // Priority 2: Parking Slot Real-Time Telemetry
+      if (data.type === "slot-update") {
+        setParkingSlots((prev) =>
+          prev.map((s) => (s.id === data.slotId ? { ...s, occupied: data.occupied } : s))
+        );
+        if (data.stats) setParkingStats(data.stats);
+      }
+
+      if (data.type === "slots-changed") {
+        if (data.action === "create" && data.slot) {
+          setParkingSlots((prev) => [...prev.filter((s) => s.id !== data.slot.id), data.slot]);
+        } else if (data.action === "delete" && data.slotId) {
+          setParkingSlots((prev) => prev.filter((s) => s.id !== data.slotId));
+        }
+        if (data.stats) setParkingStats(data.stats);
+      }
     };
 
     window.addEventListener("ws-message", handler);
@@ -258,6 +334,15 @@ export default function DashboardPage() {
 
   const tabs = [
     { id: "controls", label: "Controls", icon: LayoutGrid },
+    {
+      id: "parking",
+      label: "Parking",
+      icon: Car,
+      badge: parkingStats.total > 0 ? (parkingStats.isFull ? "FULL" : `${parkingStats.available} Free`) : null,
+      badgeColor: parkingStats.isFull
+        ? "bg-red-500/20 text-red-400 border-red-500/30"
+        : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    },
     ...(user?.role === "admin"
       ? [{ id: "admin", label: "Admin", icon: Users }]
       : []),
@@ -278,6 +363,12 @@ export default function DashboardPage() {
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 pt-20 pb-24 md:pb-8">
+        {/* Priority 1: Emergency Protocols Bar & Alarm Overlay */}
+        <EmergencyBar
+          emergencyState={emergencyState}
+          onEmergencyChange={setEmergencyState}
+        />
+
         {/* Tab navigation (desktop) */}
         <div className="hidden md:flex items-center gap-1 mb-6 bg-slate-800/50 border border-slate-700/50 rounded-xl p-1 w-fit">
           {tabs.map((tab) => (
@@ -291,7 +382,14 @@ export default function DashboardPage() {
               }`}
             >
               <tab.icon className="w-4 h-4" />
-              {tab.label}
+              <span>{tab.label}</span>
+              {tab.badge && (
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${tab.badgeColor}`}
+                >
+                  {tab.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -347,9 +445,35 @@ export default function DashboardPage() {
                 {/* Device grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {devices.map((device) => (
-                    <DeviceCard key={device.id} device={device} />
+                    <DeviceCard
+                      key={device.id}
+                      device={device}
+                      onUpdate={fetchDevices}
+                      isParkingFull={parkingStats.isFull}
+                    />
                   ))}
                 </div>
+              </div>
+            )}
+
+            {activeTab === "parking" && (
+              <div className="space-y-6">
+                <ParkingFloor
+                  slots={parkingSlots}
+                  stats={parkingStats}
+                  onSlotUpdated={(slot, stats) => {
+                    setParkingSlots((prev) => prev.map((s) => (s.id === slot.id ? slot : s)));
+                    if (stats) setParkingStats(stats);
+                  }}
+                  onSlotRemoved={(slotId, stats) => {
+                    setParkingSlots((prev) => prev.filter((s) => s.id !== slotId));
+                    if (stats) setParkingStats(stats);
+                  }}
+                  onSlotAdded={(slot, stats) => {
+                    setParkingSlots((prev) => [...prev, slot]);
+                    if (stats) setParkingStats(stats);
+                  }}
+                />
               </div>
             )}
 
@@ -367,11 +491,20 @@ export default function DashboardPage() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors min-w-0 ${
+              className={`relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-0 ${
                 activeTab === tab.id ? "text-cyan-400" : "text-slate-500"
               }`}
             >
-              <tab.icon className="w-5 h-5" />
+              <div className="relative">
+                <tab.icon className="w-5 h-5" />
+                {tab.badge && (
+                  <span
+                    className={`absolute -top-1.5 -right-3 text-[9px] font-bold px-1 py-0.2 rounded-full border ${tab.badgeColor}`}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-medium">{tab.label}</span>
             </button>
           ))}

@@ -22,7 +22,7 @@ import toast from 'react-hot-toast';
 import LightAutomationModal from './LightAutomationModal';
 import EditComponentModal from './EditComponentModal';
 
-export default function DeviceCard({ device, onUpdate }) {
+export default function DeviceCard({ device, onUpdate, isParkingFull }) {
   const { sendMessage, deviceOnline, esp32Online } = useContext(WebSocketContext);
   const { user } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
@@ -51,7 +51,7 @@ export default function DeviceCard({ device, onUpdate }) {
 
   if (device.type === 'light') return <LightCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
   if (device.type === 'rolling-door') return <RollingDoorCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
-  if (device.type === 'boom-gate') return <BoomGateCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
+  if (device.type === 'boom-gate') return <BoomGateCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} isParkingFull={isParkingFull} />;
   if (device.type === 'party-light') return <PartyLightCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
   return null;
 }
@@ -320,7 +320,7 @@ function RollingDoorCard({ device, onUpdate, loading, disabled, isOffline, isRea
 }
 
 // ============ BOOM GATE CARD ============
-function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
+function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly, isParkingFull }) {
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'admin';
   const [showEditModal, setShowEditModal] = useState(false);
@@ -345,6 +345,11 @@ function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOn
               {isOffline && (
                 <span className="text-[10px] font-medium text-red-400 bg-red-950/40 border border-red-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
                   <WifiOff className="w-2.5 h-2.5" /> Offline
+                </span>
+              )}
+              {isParkingFull && (
+                <span className="text-[10px] font-bold text-red-400 bg-red-950/40 border border-red-800/40 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse">
+                  PARKING FULL
                 </span>
               )}
               {!isOffline && isReadOnly && <Lock className="w-3.5 h-3.5 text-orange-400/80 ml-1" title="Read-Only Mode" />}
@@ -400,15 +405,18 @@ function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOn
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => onUpdate({ status: 'open' })}
-          disabled={loading || isOpen || disabled}
+          disabled={loading || isOpen || disabled || (!isAdmin && isParkingFull)}
+          title={!isAdmin && isParkingFull ? 'Parking floor is at full capacity (0 slots available)' : ''}
           className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 ${
             isOpen
               ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+              : !isAdmin && isParkingFull
+              ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
               : 'bg-slate-700 text-slate-300 hover:bg-green-500/10 hover:text-green-400 border border-transparent'
           } disabled:opacity-50`}
         >
           <ChevronUp className="w-4 h-4" />
-          Open Gate
+          {!isAdmin && isParkingFull ? 'Parking Full' : isAdmin && isParkingFull ? 'Open (Override)' : 'Open Gate'}
         </button>
         <button
           onClick={() => onUpdate({ status: 'closed' })}

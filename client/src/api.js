@@ -48,3 +48,15 @@ export const getReports = () => apiRequest('/reports');
 export const createReport = (data) => apiRequest('/reports', { method: 'POST', body: JSON.stringify(data) });
 export const updateReportStatus = (id, status) => apiRequest(`/reports/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
 export const deleteReport = (id) => apiRequest(`/reports/${id}`, { method: 'DELETE' });
+
+// Emergency API
+export const getEmergencyStatus = () => apiRequest('/emergency/status');
+export const triggerEvacuation = () => apiRequest('/emergency/evacuate', { method: 'POST' });
+export const triggerLockdown = () => apiRequest('/emergency/lockdown', { method: 'POST' });
+export const clearEmergency = () => apiRequest('/emergency/clear', { method: 'POST' });
+
+// Parking API
+export const getParkingSlots = () => apiRequest('/parking/slots');
+export const createParkingSlot = (data) => apiRequest('/parking/slots', { method: 'POST', body: JSON.stringify(data) });
+export const deleteParkingSlot = (id) => apiRequest(`/parking/slots/${id}`, { method: 'DELETE' });
+export const updateSlotStatus = (id, occupied) => apiRequest(`/parking/slots/${id}/status`, { method: 'PUT', body: JSON.stringify({ occupied }) });

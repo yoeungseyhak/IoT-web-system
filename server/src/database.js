@@ -57,6 +57,21 @@ function initDatabase() {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS parking_slots (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            sensor_pin TEXT DEFAULT '',
+            sensor_type TEXT DEFAULT 'ultrasonic',
+            occupied INTEGER DEFAULT 0,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 
     // Migration for existing database: add pin column if missing
@@ -96,6 +111,22 @@ function initDatabase() {
     db.prepare("UPDATE devices SET pin = 'GPIO 18, 19' WHERE id = 'rolling-door' AND (pin IS NULL OR pin = '')").run();
     db.prepare("UPDATE devices SET pin = 'GPIO 21, 22' WHERE id = 'boom-gate' AND (pin IS NULL OR pin = '')").run();
     db.prepare("UPDATE devices SET pin = 'GPIO 23' WHERE id = 'party-light' AND (pin IS NULL OR pin = '')").run();
+
+    // Seed system_settings if empty
+    const emergencyMode = db.prepare("SELECT value FROM system_settings WHERE key = 'emergency_mode'").get();
+    if (!emergencyMode) {
+        db.prepare("INSERT INTO system_settings (key, value) VALUES ('emergency_mode', 'normal')").run();
+    }
+
+    // Seed default parking slots if empty
+    const slotCount = db.prepare('SELECT COUNT(*) as count FROM parking_slots').get().count;
+    if (slotCount === 0) {
+        const insertSlot = db.prepare('INSERT INTO parking_slots (id, name, sensor_pin, sensor_type, occupied) VALUES (?, ?, ?, ?, ?)');
+        insertSlot.run('slot-1', 'Slot A1', 'GPIO 32, 33', 'ultrasonic', 0);
+        insertSlot.run('slot-2', 'Slot A2', 'GPIO 34, 35', 'ultrasonic', 0);
+        insertSlot.run('slot-3', 'Slot A3', 'GPIO 36', 'ir', 0);
+        insertSlot.run('slot-4', 'Slot A4', 'GPIO 39', 'ir', 0);
+    }
 
     return db;
 }

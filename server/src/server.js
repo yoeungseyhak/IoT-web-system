@@ -10,6 +10,8 @@ const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const devicesRoutes = require('./routes/devices');
 const reportsRoutes = require('./routes/reports');
+const { router: emergencyRoutes, initEmergencyState } = require('./routes/emergency');
+const { router: parkingRoutes } = require('./routes/parking');
 const { setupWebSocket } = require('./websocket');
 const { initAutomations } = require('./automation');
 
@@ -21,6 +23,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/devices', devicesRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/emergency', emergencyRoutes);
+app.use('/api/parking', parkingRoutes);
 
 // Logs route reuses devices router (GET /api/devices/logs)
 // Also add a top-level /api/logs alias
@@ -47,6 +51,7 @@ if (fs.existsSync(clientDistPath)) {
 const server = http.createServer(app);
 setupWebSocket(server);
 initDatabase();
+initEmergencyState();
 initAutomations();
 
 // Recovery: fix rolling doors stuck in transitional states from previous session
