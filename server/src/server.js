@@ -9,6 +9,7 @@ const { initDatabase } = require('./database');
 const authRoutes = require('./routes/auth');
 const usersRoutes = require('./routes/users');
 const devicesRoutes = require('./routes/devices');
+const reportsRoutes = require('./routes/reports');
 const { setupWebSocket } = require('./websocket');
 const { initAutomations } = require('./automation');
 
@@ -19,6 +20,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/devices', devicesRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Logs route reuses devices router (GET /api/devices/logs)
 // Also add a top-level /api/logs alias
@@ -47,7 +49,28 @@ setupWebSocket(server);
 initDatabase();
 initAutomations();
 
+// Recovery: fix rolling doors stuck in transitional states from previous session
+try {
+    const { getDb: getDatabase2 } = require('./database');
+    const db2 = getDatabase2();
+    const stuckDoors = db2.prepare("SELECT id, state FROM devices WHERE type = 'rolling-door'").all();
+    for (const door of stuckDoors) {
+        const st = JSON.parse(door.state || '{}');
+        if (st.status === 'opening') {
+            st.status = 'opened';
+            db2.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(JSON.stringify(st), door.id);
+            console.log(`Recovered rolling door "${door.id}" from stuck "opening" → "opened"`);
+        } else if (st.status === 'closing') {
+            st.status = 'closed';
+            db2.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(JSON.stringify(st), door.id);
+            console.log(`Recovered rolling door "${door.id}" from stuck "closing" → "closed"`);
+        }
+    }
+} catch (e) {
+    console.error('Rolling door recovery error:', e);
+}
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-    console.log(`Cotafer Server running on port ${PORT}`);
+    console.log(`Floor Management Server running on port ${PORT}`);
 });

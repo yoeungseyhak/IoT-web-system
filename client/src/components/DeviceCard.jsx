@@ -4,7 +4,6 @@ import { updateDevice } from '../api';
 import {
   Lightbulb,
   ArrowUp,
-  Square,
   ArrowDown,
   ChevronUp,
   ChevronDown,
@@ -14,17 +13,32 @@ import {
   Timer,
   Repeat,
   Edit3,
-  Cpu
+  Cpu,
+  Lock,
+  Loader2,
+  WifiOff
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LightAutomationModal from './LightAutomationModal';
 import EditComponentModal from './EditComponentModal';
 
 export default function DeviceCard({ device, onUpdate }) {
-  const { sendMessage } = useContext(WebSocketContext);
+  const { sendMessage, deviceOnline, esp32Online } = useContext(WebSocketContext);
+  const { user } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
+  const isOnline = deviceOnline ?? esp32Online;
+  const isReadOnly = user?.can_control === false;
+  const disabled = isReadOnly || !isOnline;
 
   const handleUpdate = async (newState) => {
+    if (!isOnline) {
+      toast.error('ESP32 device is offline. Controls are disabled.');
+      return;
+    }
+    if (isReadOnly) {
+      toast.error('Your account is in read-only mode.');
+      return;
+    }
     setLoading(true);
     try {
       await updateDevice(device.id, newState);
@@ -35,15 +49,15 @@ export default function DeviceCard({ device, onUpdate }) {
     }
   };
 
-  if (device.type === 'light') return <LightCard device={device} onUpdate={handleUpdate} loading={loading} />;
-  if (device.type === 'rolling-door') return <RollingDoorCard device={device} onUpdate={handleUpdate} loading={loading} />;
-  if (device.type === 'boom-gate') return <BoomGateCard device={device} onUpdate={handleUpdate} loading={loading} />;
-  if (device.type === 'party-light') return <PartyLightCard device={device} onUpdate={handleUpdate} loading={loading} />;
+  if (device.type === 'light') return <LightCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
+  if (device.type === 'rolling-door') return <RollingDoorCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
+  if (device.type === 'boom-gate') return <BoomGateCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
+  if (device.type === 'party-light') return <PartyLightCard device={device} onUpdate={handleUpdate} loading={loading} disabled={disabled} isOffline={!isOnline} isReadOnly={isReadOnly} />;
   return null;
 }
 
 // ============ LIGHT CARD ============
-function LightCard({ device, onUpdate, loading }) {
+function LightCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'admin';
   const isOn = device.state?.on;
@@ -77,6 +91,12 @@ function LightCard({ device, onUpdate, loading }) {
             <div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="font-semibold text-slate-100">{device.name}</h3>
+                {isOffline && (
+                  <span className="text-[10px] font-medium text-red-400 bg-red-950/40 border border-red-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                    <WifiOff className="w-2.5 h-2.5" /> Offline
+                  </span>
+                )}
+                {!isOffline && isReadOnly && <Lock className="w-3.5 h-3.5 text-orange-400/80 ml-1" title="Read-Only Mode" />}
                 {device.pin && (
                   <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
                     <Cpu className="w-2.5 h-2.5" /> {device.pin}
@@ -101,10 +121,10 @@ function LightCard({ device, onUpdate, loading }) {
 
           <button
             onClick={() => onUpdate({ on: !isOn })}
-            disabled={loading}
+            disabled={loading || disabled}
             className={`relative w-14 h-7 rounded-full transition-all duration-300 ${
               isOn ? 'bg-cyan-500' : 'bg-slate-600'
-            } ${loading ? 'opacity-50' : 'cursor-pointer active:scale-95'}`}
+            } ${(loading || disabled) ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
           >
             <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300 ${
               isOn ? 'left-7.5' : 'left-0.5'
@@ -143,11 +163,12 @@ function LightCard({ device, onUpdate, loading }) {
         <button
           type="button"
           onClick={() => setShowAutomation(true)}
+          disabled={disabled}
           className={`flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg transition-all ${
             hasAnyAutomation
               ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
-          }`}
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <Clock className="w-3.5 h-3.5" />
           Schedule & Count
@@ -173,7 +194,7 @@ function LightCard({ device, onUpdate, loading }) {
 }
 
 // ============ ROLLING DOOR CARD ============
-function RollingDoorCard({ device, onUpdate, loading }) {
+function RollingDoorCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'admin';
   const [showEditModal, setShowEditModal] = useState(false);
@@ -204,6 +225,12 @@ function RollingDoorCard({ device, onUpdate, loading }) {
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <h3 className="font-semibold text-slate-100">{device.name}</h3>
+              {isOffline && (
+                <span className="text-[10px] font-medium text-red-400 bg-red-950/40 border border-red-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <WifiOff className="w-2.5 h-2.5" /> Offline
+                </span>
+              )}
+              {!isOffline && isReadOnly && <Lock className="w-3.5 h-3.5 text-orange-400/80 ml-1" title="Read-Only Mode" />}
               {device.pin && (
                 <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
                   <Cpu className="w-2.5 h-2.5" /> {device.pin}
@@ -248,10 +275,10 @@ function RollingDoorCard({ device, onUpdate, loading }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => onUpdate({ status: 'opening' })}
-          disabled={loading || status === 'opened' || status === 'opening'}
+          disabled={loading || status === 'opened' || isMoving || disabled}
           className={`flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 ${
             status === 'opening' || status === 'opened'
               ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
@@ -262,20 +289,8 @@ function RollingDoorCard({ device, onUpdate, loading }) {
           Open
         </button>
         <button
-          onClick={() => onUpdate({ status: 'stopped' })}
-          disabled={loading || !isMoving}
-          className={`flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 ${
-            status === 'stopped'
-              ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
-              : 'bg-slate-700 text-slate-300 hover:bg-slate-600 border border-transparent'
-          } disabled:opacity-50`}
-        >
-          <Square className="w-4 h-4" />
-          Stop
-        </button>
-        <button
           onClick={() => onUpdate({ status: 'closing' })}
-          disabled={loading || status === 'closed' || status === 'closing'}
+          disabled={loading || status === 'closed' || isMoving || disabled}
           className={`flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 ${
             status === 'closing' || status === 'closed'
               ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
@@ -286,6 +301,13 @@ function RollingDoorCard({ device, onUpdate, loading }) {
           Close
         </button>
       </div>
+
+      {isMoving && (
+        <div className="flex items-center justify-center gap-2 text-xs text-cyan-400 animate-pulse py-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Door is rolling... Please wait
+        </div>
+      )}
 
       {/* Edit Component Modal */}
       <EditComponentModal
@@ -298,7 +320,7 @@ function RollingDoorCard({ device, onUpdate, loading }) {
 }
 
 // ============ BOOM GATE CARD ============
-function BoomGateCard({ device, onUpdate, loading }) {
+function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'admin';
   const [showEditModal, setShowEditModal] = useState(false);
@@ -320,6 +342,12 @@ function BoomGateCard({ device, onUpdate, loading }) {
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
               <h3 className="font-semibold text-slate-100">{device.name}</h3>
+              {isOffline && (
+                <span className="text-[10px] font-medium text-red-400 bg-red-950/40 border border-red-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                  <WifiOff className="w-2.5 h-2.5" /> Offline
+                </span>
+              )}
+              {!isOffline && isReadOnly && <Lock className="w-3.5 h-3.5 text-orange-400/80 ml-1" title="Read-Only Mode" />}
               {device.pin && (
                 <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
                   <Cpu className="w-2.5 h-2.5" /> {device.pin}
@@ -372,7 +400,7 @@ function BoomGateCard({ device, onUpdate, loading }) {
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => onUpdate({ status: 'open' })}
-          disabled={loading || isOpen}
+          disabled={loading || isOpen || disabled}
           className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 ${
             isOpen
               ? 'bg-green-500/20 text-green-400 border border-green-500/30'
@@ -384,7 +412,7 @@ function BoomGateCard({ device, onUpdate, loading }) {
         </button>
         <button
           onClick={() => onUpdate({ status: 'closed' })}
-          disabled={loading || !isOpen}
+          disabled={loading || !isOpen || disabled}
           className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 active:scale-95 ${
             !isOpen
               ? 'bg-red-500/20 text-red-400 border border-red-500/30'
@@ -407,7 +435,7 @@ function BoomGateCard({ device, onUpdate, loading }) {
 }
 
 // ============ PARTY LIGHT CARD ============
-function PartyLightCard({ device, onUpdate, loading }) {
+function PartyLightCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
   const isAdmin = user?.role === 'admin';
   const { on, brightness = 100, color = '#ff00ff', mode = 'static' } = device.state || {};
@@ -453,6 +481,12 @@ function PartyLightCard({ device, onUpdate, loading }) {
             <div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="font-semibold text-slate-100">{device.name}</h3>
+                {isOffline && (
+                  <span className="text-[10px] font-medium text-red-400 bg-red-950/40 border border-red-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
+                    <WifiOff className="w-2.5 h-2.5" /> Offline
+                  </span>
+                )}
+                {!isOffline && isReadOnly && <Lock className="w-3.5 h-3.5 text-orange-400/80 ml-1" title="Read-Only Mode" />}
                 {device.pin && (
                   <span className="text-[10px] font-mono text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-1.5 py-0.5 rounded flex items-center gap-1">
                     <Cpu className="w-2.5 h-2.5" /> {device.pin}
@@ -477,12 +511,12 @@ function PartyLightCard({ device, onUpdate, loading }) {
 
           <button
             onClick={() => onUpdate({ on: !on })}
-            disabled={loading}
+            disabled={loading || disabled}
             className={`p-2.5 rounded-xl transition-all duration-300 active:scale-95 ${
               on 
                 ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30' 
                 : 'bg-slate-700 text-slate-400 hover:bg-slate-600 border border-transparent'
-            }`}
+            } ${(loading || disabled) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <Power className="w-5 h-5" />
           </button>
@@ -526,8 +560,9 @@ function PartyLightCard({ device, onUpdate, loading }) {
                 min="0"
                 max="100"
                 value={brightness}
+                disabled={disabled}
                 onChange={(e) => onUpdate({ brightness: parseInt(e.target.value) })}
-                className="w-full h-2 bg-slate-700 rounded-full appearance-none cursor-pointer accent-cyan-500"
+                className={`w-full h-2 bg-slate-700 rounded-full appearance-none cursor-pointer accent-cyan-500 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
               />
             </div>
 
@@ -538,17 +573,19 @@ function PartyLightCard({ device, onUpdate, loading }) {
                 <input
                   type="color"
                   value={color}
+                  disabled={disabled}
                   onChange={(e) => onUpdate({ color: e.target.value })}
-                  className="w-10 h-10 rounded-lg cursor-pointer border-2 border-slate-600 bg-transparent"
+                  className={`w-10 h-10 rounded-lg cursor-pointer border-2 border-slate-600 bg-transparent ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
                 <div className="flex gap-1.5 flex-wrap">
                   {presetColors.map(c => (
                     <button
                       key={c}
+                      disabled={disabled}
                       onClick={() => onUpdate({ color: c })}
                       className={`w-8 h-8 rounded-lg border-2 transition-all duration-200 active:scale-90 ${
                         color === c ? 'border-white scale-110' : 'border-slate-600 hover:border-slate-400'
-                      }`}
+                      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                       style={{ backgroundColor: c }}
                     />
                   ))}
@@ -563,12 +600,13 @@ function PartyLightCard({ device, onUpdate, loading }) {
                 {modes.map(m => (
                   <button
                     key={m.id}
+                    disabled={disabled}
                     onClick={() => onUpdate({ mode: m.id })}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 active:scale-95 ${
                       mode === m.id 
                         ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 ring-1 ring-cyan-500/20' 
                         : 'bg-slate-700 text-slate-400 hover:bg-slate-600 border border-transparent'
-                    }`}
+                    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {m.label}
                   </button>
@@ -584,11 +622,12 @@ function PartyLightCard({ device, onUpdate, loading }) {
         <button
           type="button"
           onClick={() => setShowAutomation(true)}
+          disabled={disabled}
           className={`flex items-center gap-1.5 text-xs font-medium py-1.5 px-3 rounded-lg transition-all ${
             hasAnyAutomation
               ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
               : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
-          }`}
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <Clock className="w-3.5 h-3.5" />
           Schedule & Count

@@ -45,11 +45,30 @@ function initDatabase() {
             cycle_count TEXT DEFAULT NULL,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            username TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            category TEXT DEFAULT 'bug',
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
     `);
 
     // Migration for existing database: add pin column if missing
     try {
         db.exec("ALTER TABLE devices ADD COLUMN pin TEXT DEFAULT ''");
+    } catch (e) {
+        // column already exists
+    }
+
+    // Migration for existing database: add can_control column if missing
+    try {
+        db.exec("ALTER TABLE users ADD COLUMN can_control INTEGER DEFAULT 1");
     } catch (e) {
         // column already exists
     }

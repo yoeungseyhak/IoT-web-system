@@ -22,7 +22,11 @@ function setDeviceStatus(online) {
 function broadcastToAll(message) {
     const msgStr = JSON.stringify(message);
     webClients.forEach(client => {
-        if (client.readyState === 1) client.send(msgStr);
+        if (client.readyState === 1) {
+            client.send(msgStr);
+        } else if (client.readyState !== 0) {
+            webClients.delete(client);
+        }
     });
 }
 
@@ -64,6 +68,19 @@ function setupWebSocket(server) {
             deviceClient = ws;
             setDeviceStatus(true);
             broadcastDeviceStatus(true);
+
+            // Sync states to ESP32 on connection
+            const db = getDb();
+            const allDevices = db.prepare('SELECT id, state FROM devices').all();
+            allDevices.forEach(d => {
+                ws.send(JSON.stringify({
+                    type: 'device-update',
+                    deviceId: d.id,
+                    state: JSON.parse(d.state || '{}'),
+                    triggeredBy: 'system-init',
+                    timestamp: Date.now()
+                }));
+            });
 
             ws.on('message', (message) => {
                 try {
@@ -108,6 +125,21 @@ function setupWebSocket(server) {
                 const user = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
                 ws.user = user;
                 webClients.add(ws);
+
+                // Send initial state to web client
+                const db = getDb();
+                const { getAutomation } = require('./automation');
+                const devices = db.prepare('SELECT * FROM devices ORDER BY id').all();
+                const parsed = devices.map(d => ({
+                    ...d,
+                    state: JSON.parse(d.state || '{}'),
+                    automation: getAutomation(d.id)
+                }));
+                ws.send(JSON.stringify({
+                    type: 'init-state',
+                    devices: parsed,
+                    deviceStatus: getDeviceStatus()
+                }));
 
                 ws.on('message', (message) => {
                     try {

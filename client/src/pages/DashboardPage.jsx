@@ -8,7 +8,8 @@ import ActivityLog from "../components/ActivityLog";
 import NotificationCenter from "../components/NotificationCenter";
 import ChangePasswordModal from "../components/ChangePasswordModal";
 import AddComponentModal from "../components/AddComponentModal";
-import { LayoutGrid, Users, Clock, Loader2, Plus } from "lucide-react";
+import ReportModal from "../components/ReportModal";
+import { LayoutGrid, Users, Clock, Loader2, Plus, Lock, WifiOff } from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function DashboardPage() {
@@ -23,7 +24,9 @@ export default function DashboardPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [addComponentOpen, setAddComponentOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const audioCtxRef = useRef(null);
+  const lastNotifRef = useRef({});
 
   // Fetch devices on mount
   const fetchDevices = useCallback(async () => {
@@ -39,6 +42,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchDevices();
+    
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchDevices();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [fetchDevices]);
 
   // Play notification sound using Web Audio API
@@ -84,6 +95,10 @@ export default function DashboardPage() {
   useEffect(() => {
     const handler = (e) => {
       const data = e.detail;
+      
+      if (data.type === 'init-state') {
+        setDevices(data.devices || []);
+      }
 
       if (data.type === "device-update") {
         // Update device state
@@ -110,30 +125,38 @@ export default function DashboardPage() {
           .join(", ");
         const message = `${devName} → ${stateStr}`;
 
-        // Add to notification list
-        const notif = {
-          deviceId: data.deviceId,
-          message,
-          triggeredBy: data.triggeredBy,
-          timestamp: data.timestamp || Date.now(),
-          read: false,
-        };
-        setNotifications((prev) => [notif, ...prev].slice(0, 50));
-
         // Toast notification (only if triggered by someone else)
         if (data.triggeredBy && data.triggeredBy !== user?.username) {
-          toast(message, {
-            icon: data.deviceId?.includes("light")
-              ? "💡"
-              : data.deviceId === "boom-gate"
-                ? "🚧"
-                : data.deviceId === "rolling-door"
-                  ? "🚪"
-                  : "🎉",
-            duration: 3000,
-          });
-          playNotifSound();
-          sendBrowserNotif("Cotafer", `${data.triggeredBy}: ${message}`);
+          const now = Date.now();
+          const dedupKey = `${data.deviceId}-${stateStr}`;
+          const lastTime = lastNotifRef.current[dedupKey] || 0;
+          
+          if (now - lastTime > 1500) {
+            lastNotifRef.current[dedupKey] = now;
+            
+            // Add to notification list
+            const notif = {
+              deviceId: data.deviceId,
+              message,
+              triggeredBy: data.triggeredBy,
+              timestamp: data.timestamp || now,
+              read: false,
+            };
+            setNotifications((prev) => [notif, ...prev].slice(0, 50));
+
+            toast(message, {
+              icon: data.deviceId?.includes("light")
+                ? "💡"
+                : data.deviceId === "boom-gate"
+                  ? "🚧"
+                  : data.deviceId === "rolling-door"
+                    ? "🚪"
+                    : "🎉",
+              duration: 3000,
+            });
+            playNotifSound();
+            sendBrowserNotif("Floor Management", `${data.triggeredBy}: ${message}`);
+          }
         }
       }
 
@@ -165,6 +188,68 @@ export default function DashboardPage() {
       if (data.type === "device-status" || data.type === "esp32-status") {
         // device status is handled in App.jsx context
       }
+
+      if (data.type === "new-report") {
+        window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
+        if (user?.role === "admin" && data.report?.username !== user?.username) {
+          const now = Date.now();
+          const dedupKey = `new-report-${data.report?.id}`;
+          const lastTime = lastNotifRef.current[dedupKey] || 0;
+
+          if (now - lastTime > 2500) {
+            lastNotifRef.current[dedupKey] = now;
+            const notif = {
+              deviceId: "report",
+              message: `⚠️ New Report: "${data.report?.title}" by ${data.report?.username}`,
+              triggeredBy: data.report?.username,
+              timestamp: data.timestamp || now,
+              read: false,
+            };
+            setNotifications((prev) => [notif, ...prev].slice(0, 50));
+            toast(`⚠️ New Report: "${data.report?.title}" by ${data.report?.username}`, {
+              id: dedupKey,
+              duration: 6000,
+              icon: "⚠️",
+            });
+            playNotifSound();
+            sendBrowserNotif("Floor Management - New Report", `${data.report?.username}: ${data.report?.title}`);
+          }
+        }
+      }
+
+      if (data.type === "report-status-update") {
+        window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
+        const isMyReport = user?.id === data.report?.user_id || user?.username === data.report?.username;
+        const statusLabel = data.report?.status === 'resolved' ? 'RESOLVED' : data.report?.status === 'in_progress' ? 'IN PROGRESS' : 'PENDING';
+        if (isMyReport) {
+          const now = Date.now();
+          const dedupKey = `report-status-${data.report?.id}-${data.report?.status}`;
+          const lastTime = lastNotifRef.current[dedupKey] || 0;
+
+          if (now - lastTime > 2500) {
+            lastNotifRef.current[dedupKey] = now;
+            const notif = {
+              deviceId: "report",
+              message: `📋 Report "${data.report?.title}" status is now ${statusLabel}`,
+              triggeredBy: "Admin",
+              timestamp: data.timestamp || now,
+              read: false,
+            };
+            setNotifications((prev) => [notif, ...prev].slice(0, 50));
+            toast.success(`📋 Report "${data.report?.title}" is now ${statusLabel}!`, {
+              id: dedupKey,
+              duration: 6000,
+              icon: "🔔",
+            });
+            playNotifSound();
+            sendBrowserNotif("Floor Management - Report Updated", `"${data.report?.title}" is now ${statusLabel}`);
+          }
+        }
+      }
+
+      if (data.type === "report-deleted") {
+        window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
+      }
     };
 
     window.addEventListener("ws-message", handler);
@@ -188,6 +273,7 @@ export default function DashboardPage() {
           setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
         }}
         onChangePassword={() => setPasswordModalOpen(true)}
+        onReportIssue={() => setReportOpen(true)}
       />
 
       {/* Main content */}
@@ -224,20 +310,19 @@ export default function DashboardPage() {
                   className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm ${
                     isDeviceOnline
                       ? "bg-green-500/5 border-green-500/20 text-green-400"
-                      : "bg-amber-500/5 border-amber-500/20 text-amber-400"
+                      : "bg-red-500/5 border-red-500/20 text-red-400"
                   }`}
                 >
                   <div
-                    className={`w-2.5 h-2.5 rounded-full ${isDeviceOnline ? "bg-green-400 animate-pulse" : "bg-amber-400"}`}
+                    className={`w-2.5 h-2.5 rounded-full ${isDeviceOnline ? "bg-green-400 animate-pulse" : "bg-red-400"}`}
                   />
                   <span className="font-medium">
-                    Device Controller:{" "}
-                    {isDeviceOnline ? "Connected & Healthy" : "Not Connected"}
+                    ESP32 Controller:{" "}
+                    {isDeviceOnline ? "Connected & Healthy" : "Offline / Not Responding"}
                   </span>
                   {!isDeviceOnline && (
-                    <span className="text-xs text-amber-500/70 ml-auto hidden sm:block">
-                      Web controls still work — changes sync when device
-                      reconnects
+                    <span className="text-xs text-red-400/90 ml-auto flex items-center gap-1.5 font-medium">
+                      <Lock className="w-3.5 h-3.5" /> Controls Locked — Connect ESP32 to operate
                     </span>
                   )}
                 </div>
@@ -313,6 +398,12 @@ export default function DashboardPage() {
       <AddComponentModal
         isOpen={addComponentOpen}
         onClose={() => setAddComponentOpen(false)}
+      />
+
+      {/* Report Modal */}
+      <ReportModal 
+        isOpen={reportOpen} 
+        onClose={() => setReportOpen(false)} 
       />
     </div>
   );

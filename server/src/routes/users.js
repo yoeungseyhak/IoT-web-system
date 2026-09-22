@@ -12,10 +12,45 @@ router.use(authenticateToken, requireAdmin);
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const users = db.prepare('SELECT id, username, role, created_at FROM users ORDER BY created_at DESC').all();
-    res.json(users);
+    const users = db.prepare('SELECT id, username, role, can_control, created_at FROM users ORDER BY created_at DESC').all();
+    const parsedUsers = users.map(u => ({ ...u, can_control: u.can_control !== 0 }));
+    res.json(parsedUsers);
   } catch (err) {
     console.error('List users error:', err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PUT /api/users/:id/control - Update user control permission
+router.put('/:id/control', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { can_control } = req.body;
+
+    if (can_control === undefined) {
+      return res.status(400).json({ message: 'can_control is required' });
+    }
+
+    const controlValue = can_control ? 1 : 0;
+    const db = getDb();
+    
+    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    db.prepare('UPDATE users SET can_control = ? WHERE id = ?').run(controlValue, id);
+
+    // Log the action
+    db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, req.user.username, 'update-control', `Admin ${controlValue ? 'enabled' : 'disabled'} control for user "${user.username}"`);
+
+    const updatedUser = db.prepare('SELECT id, username, role, can_control, created_at FROM users WHERE id = ?').get(id);
+    updatedUser.can_control = updatedUser.can_control !== 0;
+    
+    res.json(updatedUser);
+  } catch (err) {
+    console.error('Update user control error:', err);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

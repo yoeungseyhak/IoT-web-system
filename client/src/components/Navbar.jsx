@@ -1,14 +1,16 @@
 import { useState, useEffect, useContext } from 'react';
-import { Building2, Wifi, Bell, ChevronDown, LogOut, KeyRound, Clock, Menu, X } from 'lucide-react';
+import { Building2, Wifi, Bell, ChevronDown, LogOut, KeyRound, Clock, Menu, X, Sun, Moon, MessageSquareWarning } from 'lucide-react';
 import { AuthContext, WebSocketContext } from '../App';
+import { useTheme } from '../context/ThemeContext';
 
-export default function Navbar({ notifications = [], onBellClick, onChangePassword }) {
+export default function Navbar({ notifications = [], onBellClick, onChangePassword, onReportIssue }) {
   const { user, logout } = useContext(AuthContext);
   const { deviceOnline, esp32Online } = useContext(WebSocketContext);
   const isOnline = deviceOnline ?? esp32Online;
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -30,7 +32,7 @@ export default function Navbar({ notifications = [], onBellClick, onChangePasswo
               <Wifi className="w-2.5 h-2.5 text-cyan-400" />
             </div>
           </div>
-          <span className="text-xl font-bold tracking-wider text-cyan-400 hidden sm:block">COTAFER</span>
+          <span className="text-xl font-bold tracking-wider text-cyan-400 hidden sm:block">FLOOR MGMT</span>
         </div>
 
         {/* Center: Time (desktop) */}
@@ -56,6 +58,24 @@ export default function Navbar({ notifications = [], onBellClick, onChangePasswo
             }`} />
             <span className="hidden sm:inline">Device {isOnline ? 'Online' : 'Offline'}</span>
           </div>
+
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-all"
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-5 h-5 text-amber-400 hover:text-amber-300 transition-transform duration-300 hover:rotate-45" />
+            ) : (
+              <Moon className="w-5 h-5 text-indigo-600 hover:text-indigo-700 transition-transform duration-300 hover:-rotate-12" />
+            )}
+          </button>
+
+          {/* Report Issue */}
+          <button onClick={onReportIssue} className="p-2 rounded-xl text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition-all" title="Report an issue">
+            <MessageSquareWarning className="w-5 h-5" />
+          </button>
 
           {/* Notification Bell */}
           <button

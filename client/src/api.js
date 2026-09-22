@@ -41,3 +41,10 @@ export const cancelDeviceAutomation = (id, type) => apiRequest(`/devices/${id}/a
 export const createDevice = (data) => apiRequest('/devices', { method: 'POST', body: JSON.stringify(data) });
 export const updateDeviceDetails = (id, data) => apiRequest(`/devices/${id}/details`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteDevice = (id) => apiRequest(`/devices/${id}`, { method: 'DELETE' });
+
+export const toggleUserControl = (id, canControl) => apiRequest(`/users/${id}/control`, { method: 'PUT', body: JSON.stringify({ can_control: canControl }) });
+
+export const getReports = () => apiRequest('/reports');
+export const createReport = (data) => apiRequest('/reports', { method: 'POST', body: JSON.stringify(data) });
+export const updateReportStatus = (id, status) => apiRequest(`/reports/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+export const deleteReport = (id) => apiRequest(`/reports/${id}`, { method: 'DELETE' });

@@ -4,6 +4,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import { getMe } from './api';
+import { ThemeProvider } from './context/ThemeContext';
 
 export const AuthContext = createContext();
 export const WebSocketContext = createContext();
@@ -27,6 +28,7 @@ export default function App() {
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const backoffRef = useRef(1000);
+  const intentionalClose = useRef(false);
 
   const updateUser = (newUser) => setUser(newUser);
 
@@ -41,6 +43,7 @@ export default function App() {
     setToken(null);
     localStorage.removeItem('token');
     if (wsRef.current) {
+      intentionalClose.current = true;
       wsRef.current.close();
     }
   };
@@ -63,11 +66,34 @@ export default function App() {
 
   const connectWs = useCallback(() => {
     if (!token) return;
+
+    // Prevent duplicate connection if socket is already open or connecting
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    // Clean up any previous socket before creating a new one
+    if (wsRef.current) {
+      const old = wsRef.current;
+      wsRef.current = null;
+      old.onopen = null;
+      old.onmessage = null;
+      old.onclose = null;
+      old.onerror = null;
+      try { old.close(); } catch (e) {}
+    }
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/ws?token=${token}`;
     
     const socket = new WebSocket(wsUrl);
+    intentionalClose.current = false;
     
     socket.onopen = () => {
       console.log("WS connected");
@@ -93,15 +119,17 @@ export default function App() {
       setIsConnected(false);
       setDeviceOnline(false);
       
-      reconnectTimeoutRef.current = setTimeout(() => {
-        backoffRef.current = Math.min(backoffRef.current * 2, 10000);
-        connectWs();
-      }, backoffRef.current);
+      if (!intentionalClose.current) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          backoffRef.current = Math.min(backoffRef.current * 2, 10000);
+          connectWs();
+        }, backoffRef.current);
+      }
     };
     
     socket.onerror = (err) => {
       console.error("WS error", err);
-      socket.close();
+      try { socket.close(); } catch (e) {}
     };
 
     wsRef.current = socket;
@@ -113,8 +141,20 @@ export default function App() {
       connectWs();
     }
     return () => {
-      if (wsRef.current) wsRef.current.close();
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        intentionalClose.current = true;
+        const old = wsRef.current;
+        wsRef.current = null;
+        old.onopen = null;
+        old.onmessage = null;
+        old.onclose = null;
+        old.onerror = null;
+        try { old.close(); } catch (e) {}
+      }
     };
   }, [user, token, connectWs]);
 
@@ -125,22 +165,24 @@ export default function App() {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, updateUser, loading }}>
-      <WebSocketContext.Provider value={{ ws, isConnected, deviceOnline, esp32Online: deviceOnline, sendMessage }}>
-        <BrowserRouter>
-          <Toaster position="top-right" toastOptions={{
-            style: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }
-          }} />
-          <Routes>
-            <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
-            <Route path="/dashboard" element={
-              <ProtectedRoute>
-                <DashboardPage />
-              </ProtectedRoute>
-            } />
-          </Routes>
-        </BrowserRouter>
-      </WebSocketContext.Provider>
-    </AuthContext.Provider>
+    <ThemeProvider>
+      <AuthContext.Provider value={{ user, token, login, logout, updateUser, loading }}>
+        <WebSocketContext.Provider value={{ ws, isConnected, deviceOnline, esp32Online: deviceOnline, sendMessage }}>
+          <BrowserRouter>
+            <Toaster position="top-right" toastOptions={{
+              style: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }
+            }} />
+            <Routes>
+              <Route path="/" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+              <Route path="/dashboard" element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
+              } />
+            </Routes>
+          </BrowserRouter>
+        </WebSocketContext.Provider>
+      </AuthContext.Provider>
+    </ThemeProvider>
   );
 }

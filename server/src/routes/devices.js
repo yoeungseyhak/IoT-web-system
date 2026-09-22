@@ -12,7 +12,38 @@ const {
 
 const router = express.Router();
 
+const rollingDoorTimers = new Map();
+
 router.use(authenticateToken);
+
+// Middleware to check can_control for non-admins
+function checkCanControl(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  try {
+    const db = getDb();
+    const user = db.prepare('SELECT can_control FROM users WHERE id = ?').get(req.user.id);
+    if (user && user.can_control === 0) {
+      return res.status(403).json({ message: 'Control disabled. Your account is in read-only mode.' });
+    }
+    next();
+  } catch (err) {
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+}
+
+// Middleware to verify physical ESP32 device is connected
+function requireDeviceOnline(req, res, next) {
+  if (process.env.ALLOW_OFFLINE_CONTROL === 'true') {
+    return next();
+  }
+  const status = getDeviceStatus();
+  if (!status || !status.online) {
+    return res.status(503).json({
+      message: 'ESP32 device is offline or not responding. Controls are disabled until the device reconnects.'
+    });
+  }
+  next();
+}
 
 // GET /api/devices - Get all devices + Device status + automations
 router.get('/', (req, res) => {
@@ -41,7 +72,7 @@ router.get('/', (req, res) => {
 });
 
 // PUT /api/devices/:id - Update device state
-router.put('/:id', (req, res) => {
+router.put('/:id', checkCanControl, requireDeviceOnline, (req, res) => {
   try {
     const { id } = req.params;
     const { state } = req.body;
@@ -56,12 +87,40 @@ router.put('/:id', (req, res) => {
       return res.status(404).json({ message: 'Device not found' });
     }
 
-    // Merge existing state with new state (partial update)
     const existingState = JSON.parse(device.state || '{}');
+    
+    // Rolling door interlock check
+    if (device.type === 'rolling-door' && state.status) {
+      if (existingState.status === 'opening' || existingState.status === 'closing') {
+        return res.status(400).json({ message: 'Rolling door is in motion. Please wait until operation completes.' });
+      }
+    }
+
+    // Merge existing state with new state (partial update)
     const newState = { ...existingState, ...state };
 
     db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(JSON.stringify(newState), id);
+
+    // Rolling door auto transition timer
+    if (device.type === 'rolling-door' && (state.status === 'opening' || state.status === 'closing')) {
+      if (rollingDoorTimers.has(id)) {
+        clearTimeout(rollingDoorTimers.get(id));
+      }
+      const timer = setTimeout(() => {
+        try {
+          const targetStatus = state.status === 'opening' ? 'opened' : 'closed';
+          const finalState = { ...newState, status: targetStatus };
+          db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(JSON.stringify(finalState), id);
+          broadcastDeviceUpdate(id, finalState, 'system-timer');
+        } catch (e) {
+          console.error('Rolling door timer error:', e);
+        }
+        rollingDoorTimers.delete(id);
+      }, 2000);
+      rollingDoorTimers.set(id, timer);
+    }
 
     // Create log entry
     const stateDesc = Object.entries(state).map(([k, v]) => `${k}: ${v}`).join(', ');
@@ -124,7 +183,7 @@ router.get('/:id/automation', (req, res) => {
 });
 
 // POST /api/devices/:id/schedule - Set time schedule
-router.post('/:id/schedule', (req, res) => {
+router.post('/:id/schedule', checkCanControl, requireDeviceOnline, (req, res) => {
   try {
     const { id } = req.params;
     const { enabled, on_time, off_time, days } = req.body;
@@ -136,7 +195,7 @@ router.post('/:id/schedule', (req, res) => {
 });
 
 // POST /api/devices/:id/countdown - Set countdown timer (auto on/off)
-router.post('/:id/countdown', (req, res) => {
+router.post('/:id/countdown', checkCanControl, requireDeviceOnline, (req, res) => {
   try {
     const { id } = req.params;
     const { action, duration_seconds } = req.body;
@@ -151,7 +210,7 @@ router.post('/:id/countdown', (req, res) => {
 });
 
 // POST /api/devices/:id/cycle-count - Set count to turn on/off
-router.post('/:id/cycle-count', (req, res) => {
+router.post('/:id/cycle-count', checkCanControl, requireDeviceOnline, (req, res) => {
   try {
     const { id } = req.params;
     const { total_count, interval_on_sec, interval_off_sec } = req.body;

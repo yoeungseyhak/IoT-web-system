@@ -28,7 +28,7 @@ router.post('/login', (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role },
+      { id: user.id, username: user.username, role: user.role, can_control: user.can_control !== 0 },
       process.env.JWT_SECRET || 'fallback_secret',
       { expiresIn: '24h' }
     );
@@ -39,7 +39,7 @@ router.post('/login', (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, role: user.role }
+      user: { id: user.id, username: user.username, role: user.role, can_control: user.can_control !== 0 }
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -51,11 +51,13 @@ router.post('/login', (req, res) => {
 router.get('/me', authenticateToken, (req, res) => {
   try {
     const db = getDb();
-    const user = db.prepare('SELECT id, username, role, created_at FROM users WHERE id = ?').get(req.user.id);
+    const user = db.prepare('SELECT id, username, role, can_control, created_at FROM users WHERE id = ?').get(req.user.id);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+
+    user.can_control = user.can_control !== 0;
 
     res.json(user);
   } catch (err) {

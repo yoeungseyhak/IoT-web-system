@@ -1,7 +1,7 @@
 {
-  "name": "cotafer-server",
+  "name": "floor-management-server",
   "version": "1.0.0",
-  "description": "Cotafer IoT Smart Building Backend",
+  "description": "Floor Management IoT Backend",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",

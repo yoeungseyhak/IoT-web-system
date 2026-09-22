@@ -59,8 +59,8 @@ export default function LoginPage() {
               </div>
             </div>
             <div>
-              <h1 className="text-3xl font-bold tracking-wider text-cyan-400">COTAFER</h1>
-              <p className="text-slate-400 text-sm mt-1">Smart Building IoT Management</p>
+              <h1 className="text-3xl font-bold tracking-wider text-cyan-400">FLOOR MANAGEMENT</h1>
+              <p className="text-slate-400 text-sm mt-1">Smart Building & Floor IoT Management</p>
             </div>
           </div>
 
@@ -134,11 +134,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* Footer */}
-          <div className="text-center">
-            <p className="text-slate-500 text-xs">Cotafer IoT v1.0 • Secure Connection</p>
-          </div>
         </div>
       </div>
     </div>

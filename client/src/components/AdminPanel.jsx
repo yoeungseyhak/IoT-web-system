@@ -1,7 +1,7 @@
 import { useState, useContext, useEffect } from 'react';
-import { Users, UserPlus, Trash2, KeyRound, Shield, User, X, Loader2 } from 'lucide-react';
+import { Users, UserPlus, Trash2, KeyRound, Shield, User, X, Loader2, ToggleLeft, ToggleRight, FileWarning, CheckCircle2, Clock as ClockIcon, AlertCircle } from 'lucide-react';
 import { AuthContext } from '../App';
-import { getUsers, createUser, deleteUser, changeUserPassword } from '../api';
+import { getUsers, createUser, deleteUser, changeUserPassword, toggleUserControl, getReports, updateReportStatus, deleteReport } from '../api';
 import toast from 'react-hot-toast';
 
 export default function AdminPanel() {
@@ -11,6 +11,9 @@ export default function AdminPanel() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(null);
+
+  const [reports, setReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(true);
 
   const fetchUsers = async () => {
     try {
@@ -23,7 +26,47 @@ export default function AdminPanel() {
     }
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  const fetchReports = async () => {
+    try {
+      const data = await getReports();
+      setReports(data || []);
+    } catch (err) {
+      toast.error('Failed to load reports');
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+    fetchReports();
+
+    const handleReportEvent = () => {
+      fetchReports();
+    };
+    window.addEventListener('report-event', handleReportEvent);
+    return () => window.removeEventListener('report-event', handleReportEvent);
+  }, []);
+
+  const handleUpdateReportStatus = async (id, status) => {
+    try {
+      await updateReportStatus(id, status);
+      toast.success('Report status updated');
+      fetchReports();
+    } catch (err) {
+      toast.error(err.message || 'Failed to update report');
+    }
+  };
+
+  const handleDeleteReport = async (id) => {
+    try {
+      await deleteReport(id);
+      toast.success('Report deleted');
+      fetchReports();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete report');
+    }
+  };
 
   const handleCreateUser = async (userData) => {
     try {
@@ -142,12 +185,104 @@ export default function AdminPanel() {
                     <Trash2 className="w-3.5 h-3.5" />
                     Delete
                   </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await toggleUserControl(u.id, !u.can_control);
+                        toast.success(u.can_control ? 'User set to read-only' : 'User control enabled');
+                        fetchUsers();
+                      } catch (err) { toast.error(err.message); }
+                    }}
+                    disabled={u.id === currentUser.id}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95 ${
+                      u.can_control !== false
+                        ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                        : 'bg-orange-500/10 text-orange-400 hover:bg-orange-500/20'
+                    } disabled:opacity-30 disabled:cursor-not-allowed`}
+                  >
+                    {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                    {u.can_control !== false ? 'Enabled' : 'Read-Only'}
+                  </button>
                 </div>
               </div>
             </div>
           ))}
         </div>
       )}
+
+      {/* Issue & Bug Reports Section */}
+      <div className="pt-6 border-t border-slate-700/60 dark:border-slate-700/60 border-slate-200">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-500/10 rounded-xl flex items-center justify-center">
+              <FileWarning className="w-5 h-5 text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-100">Issue & Bug Reports</h2>
+              <p className="text-sm text-slate-400">{reports.length} reports submitted</p>
+            </div>
+          </div>
+        </div>
+
+        {reportsLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-6 h-6 text-cyan-500 animate-spin" />
+          </div>
+        ) : reports.length === 0 ? (
+          <div className="text-center py-8 bg-slate-800/30 rounded-xl border border-slate-700/50">
+            <CheckCircle2 className="w-8 h-8 text-green-400 mx-auto mb-2 opacity-80" />
+            <p className="text-slate-300 font-medium text-sm">No issues reported</p>
+            <p className="text-slate-500 text-xs mt-0.5">All systems running smoothly</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {reports.map((report) => (
+              <div
+                key={report.id}
+                className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 hover:border-slate-600 transition-all"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-200 text-sm">{report.title}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-700 text-slate-300 border border-slate-600">
+                      {report.category}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={report.status}
+                      onChange={(e) => handleUpdateReportStatus(report.id, e.target.value)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium border focus:outline-none cursor-pointer ${
+                        report.status === 'resolved'
+                          ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                          : report.status === 'in_progress'
+                          ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      }`}
+                    >
+                      <option value="pending" className="bg-slate-800 text-amber-400">Pending</option>
+                      <option value="in_progress" className="bg-slate-800 text-cyan-400">In Progress</option>
+                      <option value="resolved" className="bg-slate-800 text-green-400">Resolved</option>
+                    </select>
+                    <button
+                      onClick={() => handleDeleteReport(report.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-red-500/10 transition-colors"
+                      title="Delete report"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mb-2 leading-relaxed">{report.description}</p>
+                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                  <span>Reported by: <strong className="text-slate-300 font-medium">{report.username}</strong></span>
+                  <span>{new Date(report.created_at).toLocaleString()}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Add User Modal */}
       {showAddModal && (

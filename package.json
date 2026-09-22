@@ -1,7 +1,7 @@
 {
-  "name": "cotafer-iot",
+  "name": "floor-management",
   "version": "1.0.0",
-  "description": "Cotafer IoT Smart Building Management System",
+  "description": "Floor Management Smart Building IoT System",
   "scripts": {
     "install:all": "cd server && npm install && cd ../client && npm install",
     "build": "cd client && npm run build",
