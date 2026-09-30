@@ -105,7 +105,9 @@ export default function App() {
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'device-status' || data.type === 'esp32-status') {
-          setDeviceOnline(data.online);
+          setDeviceOnline(Boolean(data.online));
+        } else if (data.type === 'init-state' && data.deviceStatus) {
+          setDeviceOnline(Boolean(data.deviceStatus.online));
         }
         // Expose message via custom event to avoid deep prop drilling for real-time
         window.dispatchEvent(new CustomEvent('ws-message', { detail: data }));
