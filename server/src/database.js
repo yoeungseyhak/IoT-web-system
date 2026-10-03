@@ -122,11 +122,19 @@ function initDatabase() {
     const slotCount = db.prepare('SELECT COUNT(*) as count FROM parking_slots').get().count;
     if (slotCount === 0) {
         const insertSlot = db.prepare('INSERT INTO parking_slots (id, name, sensor_pin, sensor_type, occupied) VALUES (?, ?, ?, ?, ?)');
-        insertSlot.run('slot-1', 'Slot A1', 'GPIO 32, 33', 'ultrasonic', 0);
-        insertSlot.run('slot-2', 'Slot A2', 'GPIO 34, 35', 'ultrasonic', 0);
-        insertSlot.run('slot-3', 'Slot A3', 'GPIO 36', 'ir', 0);
-        insertSlot.run('slot-4', 'Slot A4', 'GPIO 39', 'ir', 0);
+        insertSlot.run('slot-1', 'Slot A1', 'GPIO 32', 'switch', 0);
+        insertSlot.run('slot-2', 'Slot A2', 'GPIO 33', 'switch', 0);
+        insertSlot.run('slot-3', 'Slot A3', 'GPIO 25', 'switch', 0);
+        insertSlot.run('slot-4', 'Slot A4', 'GPIO 26', 'switch', 0);
     }
+
+    // Migration: update legacy default slots to match mechanical switch GPIO assignments
+    try {
+        db.prepare("UPDATE parking_slots SET sensor_type = 'switch', sensor_pin = 'GPIO 32' WHERE id = 'slot-1' AND sensor_pin = 'GPIO 32, 33'").run();
+        db.prepare("UPDATE parking_slots SET sensor_type = 'switch', sensor_pin = 'GPIO 33' WHERE id = 'slot-2' AND sensor_pin = 'GPIO 34, 35'").run();
+        db.prepare("UPDATE parking_slots SET sensor_type = 'switch', sensor_pin = 'GPIO 25' WHERE id = 'slot-3' AND sensor_pin = 'GPIO 36'").run();
+        db.prepare("UPDATE parking_slots SET sensor_type = 'switch', sensor_pin = 'GPIO 26' WHERE id = 'slot-4' AND sensor_pin = 'GPIO 39'").run();
+    } catch (e) {}
 
     return db;
 }

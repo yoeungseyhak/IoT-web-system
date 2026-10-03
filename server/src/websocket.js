@@ -20,7 +20,7 @@ function setDeviceStatus(online) {
 }
 
 function broadcastToAll(message) {
-    const msgStr = JSON.stringify(message);
+    const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
     webClients.forEach(client => {
         if (client.readyState === 1) {
             client.send(msgStr);
@@ -28,6 +28,9 @@ function broadcastToAll(message) {
             webClients.delete(client);
         }
     });
+    if (deviceClient && deviceClient.readyState === 1) {
+        deviceClient.send(msgStr);
+    }
 }
 
 function broadcastDeviceStatus(online) {
@@ -45,17 +48,27 @@ function broadcastDeviceStatus(online) {
 }
 
 function broadcastDeviceUpdate(deviceId, state, triggeredBy) {
+    let pin = '';
+    let deviceType = '';
+    try {
+        const db = getDb();
+        const dev = db.prepare('SELECT pin, type FROM devices WHERE id = ?').get(deviceId);
+        if (dev) {
+            pin = dev.pin || '';
+            deviceType = dev.type || '';
+        }
+    } catch (e) {}
+
     const msg = {
         type: 'device-update',
         deviceId,
         state,
+        pin,
+        deviceType,
         triggeredBy,
         timestamp: Date.now()
     };
     broadcastToAll(msg);
-    if (deviceClient && deviceClient.readyState === 1) {
-        deviceClient.send(JSON.stringify(msg));
-    }
 }
 
 function setupWebSocket(server) {
@@ -69,18 +82,32 @@ function setupWebSocket(server) {
             setDeviceStatus(true);
             broadcastDeviceStatus(true);
 
-            // Sync states to ESP32 on connection
+            // Sync states and pin mapping to ESP32 on connection
             const db = getDb();
-            const allDevices = db.prepare('SELECT id, state FROM devices').all();
+            const allDevices = db.prepare('SELECT id, state, pin, type FROM devices').all();
             allDevices.forEach(d => {
                 ws.send(JSON.stringify({
                     type: 'device-update',
                     deviceId: d.id,
                     state: JSON.parse(d.state || '{}'),
+                    pin: d.pin || '',
+                    deviceType: d.type || '',
                     triggeredBy: 'system-init',
                     timestamp: Date.now()
                 }));
             });
+
+            // Sync parking slots to ESP32 on connection
+            try {
+                const allSlots = db.prepare('SELECT id, name, sensor_pin, sensor_type, occupied FROM parking_slots ORDER BY id ASC').all();
+                ws.send(JSON.stringify({
+                    type: 'slots-init',
+                    slots: allSlots,
+                    timestamp: Date.now()
+                }));
+            } catch (err) {
+                console.error('Error syncing parking slots on connect:', err);
+            }
 
             ws.on('message', (message) => {
                 try {
