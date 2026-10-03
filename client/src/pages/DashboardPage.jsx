@@ -339,6 +339,7 @@ export default function DashboardPage() {
       label: "Parking",
       icon: Car,
       badge: parkingStats.total > 0 ? (parkingStats.isFull ? "FULL" : `${parkingStats.available} Free`) : null,
+      mobileBadge: parkingStats.total > 0 ? (parkingStats.isFull ? "!" : `${parkingStats.available}`) : null,
       badgeColor: parkingStats.isFull
         ? "bg-red-500/20 text-red-400 border-red-500/30"
         : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
@@ -485,27 +486,31 @@ export default function DashboardPage() {
       </main>
 
       {/* Mobile bottom tabs */}
-      <div className="fixed bottom-0 left-0 right-0 md:hidden bg-slate-900/95 backdrop-blur-sm border-t border-slate-800 z-40">
-        <div className="flex items-center justify-around px-2 py-1">
+      <div className="fixed bottom-0 left-0 right-0 md:hidden bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-40 shadow-lg">
+        <div className="flex items-center justify-between px-2 py-1.5 max-w-md mx-auto">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`relative flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-0 ${
-                activeTab === tab.id ? "text-cyan-400" : "text-slate-500"
+              className={`relative flex flex-col items-center justify-center flex-1 py-1 px-1 rounded-xl transition-all duration-150 min-w-0 ${
+                activeTab === tab.id
+                  ? "text-cyan-400 font-semibold"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
-              <div className="relative">
-                <tab.icon className="w-5 h-5" />
-                {tab.badge && (
+              <div className="relative inline-flex items-center justify-center">
+                <tab.icon className="w-5 h-5 flex-shrink-0" />
+                {(tab.mobileBadge || tab.badge) && (
                   <span
-                    className={`absolute -top-1.5 -right-3 text-[9px] font-bold px-1 py-0.2 rounded-full border ${tab.badgeColor}`}
+                    className={`absolute -top-1 -right-2.5 text-[9px] font-bold min-w-[15px] h-[15px] px-1 rounded-full border flex items-center justify-center leading-none shadow-sm ${tab.badgeColor}`}
                   >
-                    {tab.badge}
+                    {tab.mobileBadge || tab.badge}
                   </span>
                 )}
               </div>
-              <span className="text-[10px] font-medium">{tab.label}</span>
+              <span className="text-[10px] tracking-tight mt-1 block truncate max-w-full">
+                {tab.label}
+              </span>
             </button>
           ))}
         </div>

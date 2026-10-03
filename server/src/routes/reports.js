@@ -36,18 +36,63 @@ router.post('/', (req, res) => {
   }
 });
 
-// GET /api/reports - Get reports
+// GET /api/reports - Get reports (supports pagination, filtering & search)
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    let reports;
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const search = req.query.search ? String(req.query.search).trim() : '';
+    const status = req.query.status ? String(req.query.status).trim() : '';
+    const category = req.query.category ? String(req.query.category).trim() : '';
+
+    let whereClause = ' WHERE 1=1';
+    const params = [];
     
-    if (req.user.role === 'admin') {
-      reports = db.prepare('SELECT * FROM reports ORDER BY created_at DESC').all();
-    } else {
-      reports = db.prepare('SELECT * FROM reports WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
+    if (req.user.role !== 'admin') {
+      whereClause += ' AND user_id = ?';
+      params.push(req.user.id);
     }
-    
+
+    if (search) {
+      whereClause += ' AND (title LIKE ? OR description LIKE ? OR username LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s);
+    }
+
+    if (status && status !== 'all') {
+      whereClause += ' AND status = ?';
+      params.push(status);
+    }
+
+    if (category && category !== 'all') {
+      whereClause += ' AND category = ?';
+      params.push(category);
+    }
+
+    const countRow = db.prepare(`SELECT COUNT(*) as count FROM reports${whereClause}`).get(...params);
+    const total = countRow ? countRow.count : 0;
+
+    let sql = `SELECT * FROM reports${whereClause} ORDER BY created_at DESC, id DESC`;
+
+    if (!isNaN(page) && page > 0) {
+      const safeLimit = Math.min(Math.max(1, limit), 100);
+      const offset = (page - 1) * safeLimit;
+      sql += ' LIMIT ? OFFSET ?';
+      const pageParams = [...params, safeLimit, offset];
+      const reports = db.prepare(sql).all(...pageParams);
+      return res.json({
+        reports,
+        total,
+        page,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit) || 1
+      });
+    }
+
+    // Default unpaginated query (safe limit 500)
+    sql += ' LIMIT 500';
+    const reports = db.prepare(sql).all(...params);
     res.json(reports);
   } catch (err) {
     console.error('Get reports error:', err);

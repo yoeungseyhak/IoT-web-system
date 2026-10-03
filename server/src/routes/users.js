@@ -8,11 +8,52 @@ const router = express.Router();
 // All routes require admin
 router.use(authenticateToken, requireAdmin);
 
-// GET /api/users - List all users
+// GET /api/users - List users (supports pagination & search for large datasets)
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const users = db.prepare('SELECT id, username, role, can_control, created_at FROM users ORDER BY created_at DESC').all();
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10) || 20;
+    const search = req.query.search ? String(req.query.search).trim() : '';
+    const role = req.query.role ? String(req.query.role).trim() : '';
+
+    let whereClause = ' WHERE 1=1';
+    const params = [];
+
+    if (search) {
+      whereClause += ' AND username LIKE ?';
+      params.push(`%${search}%`);
+    }
+
+    if (role && role !== 'all') {
+      whereClause += ' AND role = ?';
+      params.push(role);
+    }
+
+    const countRow = db.prepare(`SELECT COUNT(*) as count FROM users${whereClause}`).get(...params);
+    const total = countRow ? countRow.count : 0;
+
+    let sql = `SELECT id, username, role, can_control, created_at FROM users${whereClause} ORDER BY created_at DESC, id DESC`;
+
+    if (!isNaN(page) && page > 0) {
+      const safeLimit = Math.min(Math.max(1, limit), 100);
+      const offset = (page - 1) * safeLimit;
+      sql += ' LIMIT ? OFFSET ?';
+      const pageParams = [...params, safeLimit, offset];
+      const users = db.prepare(sql).all(...pageParams);
+      const parsedUsers = users.map(u => ({ ...u, can_control: u.can_control !== 0 }));
+      return res.json({
+        users: parsedUsers,
+        total,
+        page,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit) || 1
+      });
+    }
+
+    // Default unpaginated query (safe limit 500)
+    sql += ' LIMIT 500';
+    const users = db.prepare(sql).all(...params);
     const parsedUsers = users.map(u => ({ ...u, can_control: u.can_control !== 0 }));
     res.json(parsedUsers);
   } catch (err) {

@@ -1,7 +1,7 @@
 import { useState, useContext } from 'react';
-import { Car, Plus, Trash2, CheckCircle2, AlertCircle, Radio, Cpu, RefreshCw, ShieldAlert, Sparkles, Loader2 } from 'lucide-react';
+import { Car, Plus, Trash2, CheckCircle2, AlertCircle, Radio, Cpu, ShieldAlert, Sparkles, Loader2 } from 'lucide-react';
 import { AuthContext } from '../App';
-import { updateSlotStatus, deleteParkingSlot } from '../api';
+import { deleteParkingSlot } from '../api';
 import AddSlotModal from './AddSlotModal';
 import toast from 'react-hot-toast';
 
@@ -16,20 +16,6 @@ export default function ParkingFloor({ slots = [], stats, onSlotUpdated, onSlotR
   const isFull = stats?.isFull ?? (total > 0 && available === 0);
 
   const occupancyRate = total > 0 ? Math.round((occupied / total) * 100) : 0;
-
-  const handleToggleOccupancy = async (slot) => {
-    const nextState = !slot.occupied;
-    setActionLoading(prev => ({ ...prev, [slot.id]: true }));
-    try {
-      const res = await updateSlotStatus(slot.id, nextState);
-      onSlotUpdated?.(res.slot, res.stats);
-      toast.success(`${slot.name} marked as ${nextState ? 'Occupied' : 'Available'}`);
-    } catch (err) {
-      toast.error(err.message || 'Failed to update slot status');
-    } finally {
-      setActionLoading(prev => ({ ...prev, [slot.id]: false }));
-    }
-  };
 
   const handleDeleteSlot = async (slot) => {
     if (!window.confirm(`Are you sure you want to remove "${slot.name}"?`)) return;
@@ -199,33 +185,17 @@ export default function ParkingFloor({ slots = [], stats, onSlotUpdated, onSlotR
                   )}
                 </div>
 
-                {/* Sensor Info & Toggle Button */}
-                <div className="space-y-2 pt-2 border-t border-slate-700/40">
+                {/* Sensor Info */}
+                <div className="pt-2 border-t border-slate-700/40">
                   <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="flex items-center gap-1">
-                      {slot.sensor_type === 'ir' ? <Cpu className="w-3 h-3 text-cyan-400" /> : <Radio className="w-3 h-3 text-cyan-400" />}
-                      {slot.sensor_type === 'ir' ? 'IR Sensor' : 'Ultrasonic'}
+                    <span className="flex items-center gap-1.5">
+                      {slot.sensor_type === 'ir' ? <Cpu className="w-3.5 h-3.5 text-cyan-400" /> : <Radio className="w-3.5 h-3.5 text-cyan-400" />}
+                      <span className="font-medium text-slate-300">{slot.sensor_type === 'ir' ? 'IR Sensor' : 'Ultrasonic'}</span>
                     </span>
-                    <span className="font-mono text-slate-400">{slot.sensor_pin || 'Auto'}</span>
+                    <span className="font-mono text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded text-[10px] border border-slate-700/50">
+                      {slot.sensor_pin || 'Auto'}
+                    </span>
                   </div>
-
-                  {/* Manual / Simulated Telemetry Toggle */}
-                  <button
-                    onClick={() => handleToggleOccupancy(slot)}
-                    disabled={isLoading}
-                    className={`w-full py-1.5 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
-                      isOccupied
-                        ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                        : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-400 border border-cyan-500/30'
-                    } disabled:opacity-50`}
-                  >
-                    {isLoading ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    )}
-                    {isOccupied ? 'Simulate Depart' : 'Simulate Park'}
-                  </button>
                 </div>
               </div>
             );

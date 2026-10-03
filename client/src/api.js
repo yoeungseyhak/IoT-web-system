@@ -22,7 +22,15 @@ export const login = (username, password) => apiRequest('/auth/login', { method:
 export const getMe = (token) => apiRequest('/auth/me', {}, token);
 export const changePassword = (currentPassword, newPassword) => apiRequest('/auth/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) });
 
-export const getUsers = () => apiRequest('/users');
+export const getUsers = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.page !== undefined) q.set('page', params.page);
+  if (params.limit !== undefined) q.set('limit', params.limit);
+  if (params.search) q.set('search', params.search);
+  if (params.role && params.role !== 'all') q.set('role', params.role);
+  const qs = q.toString();
+  return apiRequest(`/users${qs ? `?${qs}` : ''}`);
+};
 export const createUser = (data) => apiRequest('/users', { method: 'POST', body: JSON.stringify(data) });
 export const deleteUser = (id) => apiRequest(`/users/${id}`, { method: 'DELETE' });
 export const changeUserPassword = (id, newPassword) => apiRequest(`/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ newPassword }) });
@@ -30,7 +38,15 @@ export const changeUserPassword = (id, newPassword) => apiRequest(`/users/${id}/
 export const getDevices = () => apiRequest('/devices');
 export const updateDevice = (id, state) => apiRequest(`/devices/${id}`, { method: 'PUT', body: JSON.stringify({ state }) });
 
-export const getLogs = () => apiRequest('/logs');
+export const getLogs = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.page !== undefined) q.set('page', params.page);
+  if (params.limit !== undefined) q.set('limit', params.limit);
+  if (params.search) q.set('search', params.search);
+  if (params.action && params.action !== 'all') q.set('action', params.action);
+  const qs = q.toString();
+  return apiRequest(`/logs${qs ? `?${qs}` : ''}`);
+};
 
 export const getDeviceAutomation = (id) => apiRequest(`/devices/${id}/automation`);
 export const setDeviceSchedule = (id, data) => apiRequest(`/devices/${id}/schedule`, { method: 'POST', body: JSON.stringify(data) });
@@ -44,7 +60,16 @@ export const deleteDevice = (id) => apiRequest(`/devices/${id}`, { method: 'DELE
 
 export const toggleUserControl = (id, canControl) => apiRequest(`/users/${id}/control`, { method: 'PUT', body: JSON.stringify({ can_control: canControl }) });
 
-export const getReports = () => apiRequest('/reports');
+export const getReports = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.page !== undefined) q.set('page', params.page);
+  if (params.limit !== undefined) q.set('limit', params.limit);
+  if (params.status && params.status !== 'all') q.set('status', params.status);
+  if (params.category && params.category !== 'all') q.set('category', params.category);
+  if (params.search) q.set('search', params.search);
+  const qs = q.toString();
+  return apiRequest(`/reports${qs ? `?${qs}` : ''}`);
+};
 export const createReport = (data) => apiRequest('/reports', { method: 'POST', body: JSON.stringify(data) });
 export const updateReportStatus = (id, status) => apiRequest(`/reports/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
 export const deleteReport = (id) => apiRequest(`/reports/${id}`, { method: 'DELETE' });

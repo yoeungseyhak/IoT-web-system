@@ -26,16 +26,63 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/emergency', emergencyRoutes);
 app.use('/api/parking', parkingRoutes);
 
-// Logs route reuses devices router (GET /api/devices/logs)
-// Also add a top-level /api/logs alias
+// Logs route: supports pagination, search, action filtering for large volumes of data
 const { authenticateToken } = require('./middleware/auth');
 const { getDb: getDatabase } = require('./database');
+
+function queryLogs(db, queryParams) {
+    const page = parseInt(queryParams.page, 10);
+    const limit = parseInt(queryParams.limit, 10) || 50;
+    const search = queryParams.search ? String(queryParams.search).trim() : '';
+    const action = queryParams.action ? String(queryParams.action).trim() : '';
+
+    let whereClause = ' WHERE 1=1';
+    const params = [];
+
+    if (search) {
+        whereClause += ' AND (username LIKE ? OR action LIKE ? OR device_name LIKE ? OR details LIKE ?)';
+        const s = `%${search}%`;
+        params.push(s, s, s, s);
+    }
+
+    if (action && action !== 'all') {
+        whereClause += ' AND action = ?';
+        params.push(action);
+    }
+
+    const countRow = db.prepare(`SELECT COUNT(*) as count FROM logs${whereClause}`).get(...params);
+    const total = countRow ? countRow.count : 0;
+
+    let sql = `SELECT * FROM logs${whereClause} ORDER BY created_at DESC, id DESC`;
+
+    if (!isNaN(page) && page > 0) {
+        const safeLimit = Math.min(Math.max(1, limit), 200);
+        const offset = (page - 1) * safeLimit;
+        sql += ' LIMIT ? OFFSET ?';
+        const pageParams = [...params, safeLimit, offset];
+        const logs = db.prepare(sql).all(...pageParams);
+        return {
+            logs,
+            total,
+            page,
+            limit: safeLimit,
+            totalPages: Math.ceil(total / safeLimit) || 1
+        };
+    }
+
+    // Default unpaginated query (safe limit)
+    sql += ' LIMIT ?';
+    const logs = db.prepare(sql).all(...params, Math.min(Math.max(1, limit), 200));
+    return logs;
+}
+
 app.get('/api/logs', authenticateToken, (req, res) => {
     try {
         const db = getDatabase();
-        const logs = db.prepare('SELECT * FROM logs ORDER BY created_at DESC LIMIT 200').all();
-        res.json(logs);
+        const result = queryLogs(db, req.query);
+        res.json(result);
     } catch (err) {
+        console.error('Logs query error:', err);
         res.status(500).json({ message: 'Internal server error' });
     }
 });

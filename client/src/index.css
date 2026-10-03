@@ -49,9 +49,12 @@ html.light body {
 }
 
 html.light .bg-slate-900,
+html.light .bg-slate-900\/20,
+html.light .bg-slate-900\/30,
 html.light .bg-slate-900\/40,
 html.light .bg-slate-900\/50,
 html.light .bg-slate-900\/60,
+html.light .bg-slate-900\/70,
 html.light .bg-slate-900\/80 {
   background-color: #f1f5f9 !important;
 }
@@ -62,36 +65,78 @@ html.light div.min-h-screen.bg-slate-900 {
 }
 
 html.light .bg-slate-900\/95,
-html.light nav.bg-slate-900\/95 {
+html.light nav.bg-slate-900\/95,
+html.light div.fixed.bottom-0.bg-slate-900\/95,
+html.light .fixed.top-0.right-0.bg-slate-900 {
   background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
 }
 
 html.light .bg-slate-800,
+html.light .bg-slate-800\/20,
 html.light .bg-slate-800\/30,
+html.light .bg-slate-800\/40,
 html.light .bg-slate-800\/50,
+html.light .bg-slate-800\/60,
+html.light .bg-slate-800\/70,
 html.light .bg-slate-800\/80,
 html.light .bg-slate-800\/90 {
   background-color: #ffffff !important;
   box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
 }
 
-html.light .bg-slate-700 {
+html.light .bg-slate-700,
+html.light .bg-slate-700\/20,
+html.light .bg-slate-700\/30,
+html.light .bg-slate-700\/40,
+html.light .bg-slate-700\/50,
+html.light .bg-slate-700\/60,
+html.light .bg-slate-700\/70,
+html.light .bg-slate-700\/80 {
   background-color: #e2e8f0 !important;
   color: #334155 !important;
 }
 
-html.light .bg-slate-700\/50 {
-  background-color: #f1f5f9 !important;
-}
-
 html.light .border-slate-800,
+html.light .border-slate-800\/20,
+html.light .border-slate-800\/30,
+html.light .border-slate-800\/40,
+html.light .border-slate-800\/50,
+html.light .border-slate-800\/60,
+html.light .border-slate-800\/70,
+html.light .border-slate-800\/80,
 html.light .border-slate-700,
+html.light .border-slate-700\/20,
+html.light .border-slate-700\/30,
+html.light .border-slate-700\/40,
 html.light .border-slate-700\/50,
 html.light .border-slate-700\/60,
 html.light .border-slate-700\/70,
 html.light .border-slate-700\/80,
-html.light .border-slate-600 {
+html.light .border-slate-600,
+html.light .border-slate-600\/30,
+html.light .border-slate-600\/50 {
   border-color: #e2e8f0 !important;
+}
+
+html.light .bg-red-950\/20,
+html.light .bg-red-950\/40 {
+  background-color: #fef2f2 !important;
+}
+
+html.light .bg-emerald-950\/20,
+html.light .bg-emerald-950\/40 {
+  background-color: #ecfdf5 !important;
+}
+
+html.light .bg-cyan-950\/40 {
+  background-color: #ecfeff !important;
+}
+
+html.light .bg-black\/40,
+html.light .bg-black\/60,
+html.light .bg-black\/70 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
 }
 
 html.light .text-slate-100,
@@ -111,13 +156,18 @@ html.light .text-slate-500 {
   color: #64748b !important;
 }
 
-html.light .hover\:bg-slate-800:hover {
-  background-color: #e2e8f0 !important;
+html.light .hover\:bg-slate-800:hover,
+html.light .hover\:bg-slate-800\/60:hover,
+html.light .hover\:bg-slate-800\/80:hover {
+  background-color: #f1f5f9 !important;
   color: #0f172a !important;
 }
 
-html.light .hover\:bg-slate-700:hover {
+html.light .hover\:bg-slate-700:hover,
+html.light .hover\:bg-slate-700\/50:hover,
+html.light .hover\:bg-slate-700\/80:hover {
   background-color: #e2e8f0 !important;
+  color: #0f172a !important;
 }
 
 html.light .hover\:bg-slate-600:hover {

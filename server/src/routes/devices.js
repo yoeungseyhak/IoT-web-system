@@ -173,11 +173,51 @@ router.post('/esp32/heartbeat', (req, res) => {
   res.json({ ok: true });
 });
 
-// GET /api/logs - Get activity logs
+// GET /api/logs - Get activity logs (with pagination & search)
 router.get('/logs', (req, res) => {
   try {
     const db = getDb();
-    const logs = db.prepare('SELECT * FROM logs ORDER BY created_at DESC LIMIT 200').all();
+    const page = parseInt(req.query.page, 10);
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const search = req.query.search ? String(req.query.search).trim() : '';
+    const action = req.query.action ? String(req.query.action).trim() : '';
+
+    let whereClause = ' WHERE 1=1';
+    const params = [];
+
+    if (search) {
+      whereClause += ' AND (username LIKE ? OR action LIKE ? OR device_name LIKE ? OR details LIKE ?)';
+      const s = `%${search}%`;
+      params.push(s, s, s, s);
+    }
+
+    if (action && action !== 'all') {
+      whereClause += ' AND action = ?';
+      params.push(action);
+    }
+
+    const countRow = db.prepare(`SELECT COUNT(*) as count FROM logs${whereClause}`).get(...params);
+    const total = countRow ? countRow.count : 0;
+
+    let sql = `SELECT * FROM logs${whereClause} ORDER BY created_at DESC, id DESC`;
+
+    if (!isNaN(page) && page > 0) {
+      const safeLimit = Math.min(Math.max(1, limit), 200);
+      const offset = (page - 1) * safeLimit;
+      sql += ' LIMIT ? OFFSET ?';
+      const pageParams = [...params, safeLimit, offset];
+      const logs = db.prepare(sql).all(...pageParams);
+      return res.json({
+        logs,
+        total,
+        page,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit) || 1
+      });
+    }
+
+    sql += ' LIMIT ?';
+    const logs = db.prepare(sql).all(...params, Math.min(Math.max(1, limit), 200));
     res.json(logs);
   } catch (err) {
     console.error('Get logs error:', err);
