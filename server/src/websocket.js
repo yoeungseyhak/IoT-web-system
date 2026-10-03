@@ -115,17 +115,40 @@ function setupWebSocket(server) {
                     if (data.type === 'heartbeat') {
                         setDeviceStatus(true);
                     } else if (data.type === 'state-report') {
+                        let normalizedId = data.deviceId;
+                        if (normalizedId === 'light1') normalizedId = 'light-1';
+                        else if (normalizedId === 'light2') normalizedId = 'light-2';
+                        else if (normalizedId === 'light3') normalizedId = 'light-3';
+                        else if (normalizedId === 'light4') normalizedId = 'light-4';
+                        else if (normalizedId === 'light5') normalizedId = 'light-5';
+                        else if (normalizedId === 'party') normalizedId = 'party-light';
+
                         const db = getDb();
-                        db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-                          .run(JSON.stringify(data.state), data.deviceId);
-                        
-                        broadcastToAll({
-                            type: 'device-update',
-                            deviceId: data.deviceId,
-                            state: data.state,
-                            triggeredBy: 'device',
-                            timestamp: Date.now()
-                        });
+                        if (normalizedId === 'all_lights' || normalizedId === 'all') {
+                            const lights = db.prepare("SELECT id FROM devices WHERE type = 'light'").all();
+                            lights.forEach(l => {
+                                db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                                  .run(JSON.stringify(data.state), l.id);
+                                broadcastToAll({
+                                    type: 'device-update',
+                                    deviceId: l.id,
+                                    state: data.state,
+                                    triggeredBy: 'device',
+                                    timestamp: Date.now()
+                                });
+                            });
+                        } else {
+                            db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                              .run(JSON.stringify(data.state), normalizedId);
+                            
+                            broadcastToAll({
+                                type: 'device-update',
+                                deviceId: normalizedId,
+                                state: data.state,
+                                triggeredBy: 'device',
+                                timestamp: Date.now()
+                            });
+                        }
                     } else if (data.type === 'slot-update' || data.type === 'parking-slot-report') {
                         const db = getDb();
                         const slotId = data.slotId || data.id;
