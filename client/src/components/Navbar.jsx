@@ -100,7 +100,7 @@ export default function Navbar({ notifications = [], onBellClick, onChangePasswo
                 {user?.username?.charAt(0).toUpperCase()}
               </div>
               <span className="hidden sm:block text-sm font-medium">{user?.username}</span>
-              {user?.role === 'superadmin' ? (
+              {user?.role === 'superadmin' || user?.username === 'admin' || user?.username === 'superadmin' ? (
                 <span className="hidden sm:inline text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full font-medium">Super Admin</span>
               ) : user?.role === 'admin' ? (
                 <span className="hidden sm:inline text-[10px] bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-1.5 py-0.5 rounded-full font-medium">Admin</span>
@@ -115,9 +115,10 @@ export default function Navbar({ notifications = [], onBellClick, onChangePasswo
                   <div className="px-4 py-3 border-b border-slate-700">
                     <p className="text-sm font-medium text-slate-200">{user?.username}</p>
                     <p className="text-xs text-slate-400 capitalize">
-                      {user?.role === 'superadmin' ? 'Super Administrator' : `${user?.role} account`}
+                      {user?.role === 'superadmin' || user?.username === 'admin' || user?.username === 'superadmin' ? 'Super Administrator' : `${user?.role} account`}
                     </p>
                   </div>
+
                   <div className="py-1">
                     <button
                       onClick={() => { setDropdownOpen(false); onChangePassword(); }}

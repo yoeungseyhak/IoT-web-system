@@ -198,7 +198,9 @@ export default function AdminPanel() {
     }
   };
 
-  if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') return null;
+  const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.username === 'admin' || currentUser?.username === 'superadmin';
+  if (!isStaff) return null;
+
 
   // Filter users by client-side can_control if requested
   const displayedUsers = users.filter(u => {
@@ -376,17 +378,20 @@ export default function AdminPanel() {
 
                   {displayedUsers.map(u => {
                     const isTargetAdmin = u.role === 'admin' || u.role === 'superadmin';
-                    const canChangePassword = currentUser?.role === 'superadmin' || u.role === 'user' || u.id === currentUser?.id;
+                    const isSuperAdminAccount = u.role === 'superadmin' || u.username === 'admin' || u.username === 'superadmin';
+                    const isCurrentUserSuperAdmin = currentUser?.role === 'superadmin' || currentUser?.username === 'admin' || currentUser?.username === 'superadmin';
+                    const canChangePassword = isCurrentUserSuperAdmin || u.role === 'user' || u.id === currentUser?.id;
                     const canDelete = u.id !== currentUser?.id &&
-                                      u.role !== 'superadmin' &&
+                                      !isSuperAdminAccount &&
                                       !(currentUser?.role === 'admin' && u.role === 'admin');
                     const deleteTooltip = u.id === currentUser?.id
                       ? "You cannot delete your own account"
-                      : u.role === 'superadmin'
-                      ? "Super Administrator accounts cannot be deleted"
+                      : isSuperAdminAccount
+                      ? "Super Administrator accounts are permanently protected and cannot be deleted"
                       : (currentUser?.role === 'admin' && u.role === 'admin')
                       ? "Administrators cannot delete other administrators (Super Admin required)"
                       : "Delete user";
+
 
                     return (
                       <div
@@ -778,8 +783,9 @@ export default function AdminPanel() {
       {/* Add User Modal */}
       {showAddModal && (
         <Modal onClose={() => setShowAddModal(false)} title="Create New System User">
-          <AddUserForm currentUserRole={currentUser?.role} onSubmit={handleCreateUser} onCancel={() => setShowAddModal(false)} />
+          <AddUserForm currentUserRole={currentUser?.role} currentUsername={currentUser?.username} onSubmit={handleCreateUser} onCancel={() => setShowAddModal(false)} />
         </Modal>
+
       )}
 
       {/* Change Password Modal */}
@@ -827,11 +833,13 @@ function Modal({ children, title, onClose }) {
   );
 }
 
-function AddUserForm({ currentUserRole, onSubmit, onCancel }) {
+function AddUserForm({ currentUserRole, currentUsername, onSubmit, onCancel }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('user');
   const [loading, setLoading] = useState(false);
+
+  const isSuperAdmin = currentUserRole === 'superadmin' || currentUsername === 'admin' || currentUsername === 'superadmin';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -858,7 +866,7 @@ function AddUserForm({ currentUserRole, onSubmit, onCancel }) {
         <select value={role} onChange={e => setRole(e.target.value)}
           className="w-full bg-slate-900/60 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition-all cursor-pointer">
           <option value="user">Standard User (Operator)</option>
-          {currentUserRole === 'superadmin' && (
+          {isSuperAdmin && (
             <>
               <option value="admin">Administrator (Devices & Parking)</option>
               <option value="superadmin">Super Administrator (Full Ownership)</option>
@@ -866,6 +874,7 @@ function AddUserForm({ currentUserRole, onSubmit, onCancel }) {
           )}
         </select>
       </div>
+
       <div className="flex gap-3 justify-end pt-3 border-t border-slate-700/50">
         <button type="button" onClick={onCancel} className="px-4 py-2 bg-slate-700/70 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition-colors">Cancel</button>
         <button type="submit" disabled={loading} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-semibold transition-all duration-200 active:scale-95 flex items-center gap-2 disabled:opacity-60 shadow-lg shadow-cyan-500/20">

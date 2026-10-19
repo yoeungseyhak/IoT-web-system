@@ -27,9 +27,17 @@ router.post('/login', (req, res) => {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    const isAdminOrSuper = user.role === 'admin' || user.role === 'superadmin';
+    const isSuper = user.role === 'superadmin' || user.username === 'admin' || user.username === 'superadmin';
+    const effectiveRole = isSuper ? 'superadmin' : user.role;
+    if (isSuper && user.role !== 'superadmin') {
+      try {
+        db.prepare("UPDATE users SET role = 'superadmin', can_control = 1 WHERE id = ?").run(user.id);
+      } catch (e) {}
+    }
+
+    const isAdminOrSuper = effectiveRole === 'admin' || effectiveRole === 'superadmin';
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: user.role, can_control: isAdminOrSuper ? true : (user.can_control !== 0) },
+      { id: user.id, username: user.username, role: effectiveRole, can_control: isAdminOrSuper ? true : (user.can_control !== 0) },
       process.env.JWT_SECRET || 'fallback_secret',
       { expiresIn: '24h' }
     );
@@ -40,7 +48,7 @@ router.post('/login', (req, res) => {
 
     res.json({
       token,
-      user: { id: user.id, username: user.username, role: user.role, can_control: isAdminOrSuper ? true : (user.can_control !== 0) }
+      user: { id: user.id, username: user.username, role: effectiveRole, can_control: isAdminOrSuper ? true : (user.can_control !== 0) }
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -58,7 +66,16 @@ router.get('/me', authenticateToken, (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    user.can_control = (user.role === 'admin' || user.role === 'superadmin') ? true : (user.can_control !== 0);
+    const isSuper = user.role === 'superadmin' || user.username === 'admin' || user.username === 'superadmin';
+    const effectiveRole = isSuper ? 'superadmin' : user.role;
+    if (isSuper && user.role !== 'superadmin') {
+      try {
+        db.prepare("UPDATE users SET role = 'superadmin', can_control = 1 WHERE id = ?").run(user.id);
+      } catch (e) {}
+    }
+
+    user.role = effectiveRole;
+    user.can_control = (effectiveRole === 'admin' || effectiveRole === 'superadmin') ? true : (user.can_control !== 0);
 
     res.json(user);
   } catch (err) {

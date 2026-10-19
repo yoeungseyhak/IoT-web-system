@@ -118,8 +118,15 @@ function initDatabase() {
     // Ensure all administrator accounts always have full device control (can_control = 1)
     db.prepare("UPDATE users SET can_control = 1 WHERE role IN ('admin', 'superadmin')").run();
 
-    // Ensure primary admin account is upgraded to superadmin
-    db.prepare("UPDATE users SET role = 'superadmin' WHERE username = 'admin' AND role = 'admin'").run();
+    // Ensure all accounts named 'admin' or 'superadmin' are upgraded to superadmin
+    db.prepare("UPDATE users SET role = 'superadmin', can_control = 1 WHERE username IN ('admin', 'superadmin')").run();
+
+    // Ensure at least one superadmin exists in the database
+    const existingSuperCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'superadmin'").get().count;
+    if (existingSuperCount === 0) {
+        db.prepare("UPDATE users SET role = 'superadmin', can_control = 1 WHERE id = (SELECT MIN(id) FROM users)").run();
+    }
+
 
     // Seed Data
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;

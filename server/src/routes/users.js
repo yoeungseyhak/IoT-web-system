@@ -116,27 +116,30 @@ router.post('/', (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     }
 
-    const requestedRole = (role === 'superadmin' || role === 'admin') ? role : 'user';
+    const trimmedUsername = String(username).trim();
+    const isSuperTarget = trimmedUsername.toLowerCase() === 'superadmin' || trimmedUsername.toLowerCase() === 'admin';
+    let requestedRole = isSuperTarget ? 'superadmin' : ((role === 'superadmin' || role === 'admin') ? role : 'user');
 
     // Only Super Admin can create Admin or Super Admin accounts
-    if ((requestedRole === 'superadmin' || requestedRole === 'admin') && req.user.role !== 'superadmin') {
+    const isSuperAdminUser = req.user.role === 'superadmin' || req.user.username === 'admin' || req.user.username === 'superadmin';
+    if ((requestedRole === 'superadmin' || requestedRole === 'admin') && !isSuperAdminUser) {
       return res.status(403).json({
         message: 'Only a Super Administrator can create Administrator or Super Administrator accounts.'
       });
     }
 
     const db = getDb();
-    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+    const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(trimmedUsername);
     if (existing) {
       return res.status(409).json({ message: 'Username already exists' });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(username, passwordHash, requestedRole);
+    const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(trimmedUsername, passwordHash, requestedRole);
 
     // Log user creation
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, req.user.username, 'create-user', `Created user "${username}" with role "${requestedRole}"`);
+      .run(req.user.id, req.user.username, 'create-user', `Created user "${trimmedUsername}" with role "${requestedRole}"`);
 
     const newUser = db.prepare('SELECT id, username, role, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(newUser);
@@ -166,14 +169,17 @@ router.put('/:id/password', (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    const isSuperAdminCaller = req.user.role === 'superadmin' || req.user.username === 'admin' || req.user.username === 'superadmin';
+    const isSuperAdminTarget = user.role === 'superadmin' || user.username === 'superadmin' || user.username === 'admin';
+
     // Role hierarchy protections for password resets:
     // 1. Regular admins cannot change passwords of Super Admins
-    if (user.role === 'superadmin' && req.user.role !== 'superadmin') {
+    if (isSuperAdminTarget && !isSuperAdminCaller) {
       return res.status(403).json({ message: 'Only a Super Administrator can change a Super Administrator password.' });
     }
 
     // 2. Regular admins cannot change passwords of other Admins
-    if (user.role === 'admin' && req.user.role !== 'superadmin' && req.user.id !== user.id) {
+    if (user.role === 'admin' && !isSuperAdminCaller && req.user.id !== user.id) {
       return res.status(403).json({ message: 'Administrators cannot change passwords of other administrators. Super Administrator required.' });
     }
 
@@ -207,21 +213,18 @@ router.delete('/:id', (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Hierarchy check 1: Target is Super Admin
-    if (user.role === 'superadmin') {
-      if (req.user.role !== 'superadmin') {
-        return res.status(403).json({ message: 'Administrators cannot delete a Super Administrator account.' });
-      }
-      const superCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'superadmin'").get().count;
-      if (superCount <= 1) {
-        return res.status(400).json({ message: 'Cannot delete the primary Super Administrator account.' });
-      }
+    // Hierarchy check 1: Target is Super Admin (Permanently protected)
+    const isSuperAdminTarget = user.role === 'superadmin' || user.username === 'superadmin' || user.username === 'admin';
+    if (isSuperAdminTarget) {
+      return res.status(403).json({
+        message: 'Super Administrator accounts are permanently protected and cannot be deleted.'
+      });
     }
 
     // Hierarchy check 2: Target is Admin
     if (user.role === 'admin') {
-      // Regular Admins CANNOT delete other Admins! Only Super Admin can!
-      if (req.user.role !== 'superadmin') {
+      const isSuperAdminCaller = req.user.role === 'superadmin' || req.user.username === 'admin' || req.user.username === 'superadmin';
+      if (!isSuperAdminCaller) {
         return res.status(403).json({
           message: 'Administrators cannot delete other administrator accounts. Only a Super Administrator can delete an admin.'
         });

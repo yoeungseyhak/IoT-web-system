@@ -332,6 +332,8 @@ export default function DashboardPage() {
     return () => window.removeEventListener("ws-message", handler);
   }, [user, playNotifSound, sendBrowserNotif]);
 
+  const isStaff = user?.role === "admin" || user?.role === "superadmin" || user?.username === "admin" || user?.username === "superadmin";
+
   const tabs = [
     { id: "controls", label: "Controls", icon: LayoutGrid },
     {
@@ -344,11 +346,12 @@ export default function DashboardPage() {
         ? "bg-red-500/20 text-red-400 border-red-500/30"
         : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
     },
-    ...(user?.role === "admin" || user?.role === "superadmin"
-      ? [{ id: "admin", label: "Admin", icon: Users }]
+    ...(isStaff
+      ? [{ id: "admin", label: "Accounts", icon: Users }]
       : []),
     { id: "logs", label: "Logs", icon: Clock },
   ];
+
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -477,7 +480,8 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {activeTab === "admin" && (user?.role === "admin" || user?.role === "superadmin") && <AdminPanel />}
+            {activeTab === "admin" && isStaff && <AdminPanel />}
+
 
             {activeTab === "logs" && <ActivityLog />}
           </>
