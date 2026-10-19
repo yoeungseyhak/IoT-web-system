@@ -83,7 +83,7 @@ export default function ParkingFloor({ slots = [], stats, onSlotUpdated, onSlotR
             </div>
           </div>
 
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'superadmin') && (
             <button
               onClick={() => setAddModalOpen(true)}
               className="flex items-center gap-1.5 px-3.5 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-cyan-500/20 transition-all hover:scale-[1.02]"
@@ -150,7 +150,7 @@ export default function ParkingFloor({ slots = [], stats, onSlotUpdated, onSlotR
                     </span>
                   </div>
 
-                  {user?.role === 'admin' && (
+                  {(user?.role === 'admin' || user?.role === 'superadmin') && (
                     <button
                       onClick={() => handleDeleteSlot(slot)}
                       disabled={isLoading}

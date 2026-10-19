@@ -27,7 +27,7 @@ export default function DeviceCard({ device, onUpdate, isParkingFull }) {
   const { user } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const isOnline = deviceOnline ?? esp32Online;
-  const isReadOnly = user?.role !== 'admin' && user?.can_control === false;
+  const isReadOnly = (user?.role !== 'admin' && user?.role !== 'superadmin') && user?.can_control === false;
   const disabled = isReadOnly || !isOnline;
 
   const handleUpdate = async (newState) => {
@@ -59,7 +59,7 @@ export default function DeviceCard({ device, onUpdate, isParkingFull }) {
 // ============ LIGHT CARD ============
 function LightCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const isOn = device.state?.on;
   const [showAutomation, setShowAutomation] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -196,7 +196,7 @@ function LightCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly 
 // ============ ROLLING DOOR CARD ============
 function RollingDoorCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const [showEditModal, setShowEditModal] = useState(false);
   const status = device.state?.status || 'closed';
   const isMoving = status === 'opening' || status === 'closing';
@@ -322,7 +322,7 @@ function RollingDoorCard({ device, onUpdate, loading, disabled, isOffline, isRea
 // ============ BOOM GATE CARD ============
 function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly, isParkingFull }) {
   const { user } = useContext(AuthContext);
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const [showEditModal, setShowEditModal] = useState(false);
   const status = device.state?.status || 'closed';
   const isOpen = status === 'open' || status === 'opened';
@@ -445,7 +445,7 @@ function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOn
 // ============ PARTY LIGHT CARD ============
 function PartyLightCard({ device, onUpdate, loading, disabled, isOffline, isReadOnly }) {
   const { user } = useContext(AuthContext);
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
   const { on, brightness = 100, color = '#ff00ff', mode = 'static' } = device.state || {};
   const [showAutomation, setShowAutomation] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);

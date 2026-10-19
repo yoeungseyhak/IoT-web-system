@@ -2,7 +2,7 @@ import { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { 
   Users, UserPlus, Trash2, KeyRound, Shield, User, X, Loader2, 
   ToggleLeft, ToggleRight, FileWarning, CheckCircle2, Search, Filter, 
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RefreshCw, AlertCircle
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RefreshCw, AlertCircle, Crown
 } from 'lucide-react';
 import { AuthContext } from '../App';
 import { 
@@ -198,11 +198,11 @@ export default function AdminPanel() {
     }
   };
 
-  if (currentUser?.role !== 'admin') return null;
+  if (currentUser?.role !== 'admin' && currentUser?.role !== 'superadmin') return null;
 
   // Filter users by client-side can_control if requested
   const displayedUsers = users.filter(u => {
-    const hasControl = u.role === 'admin' ? true : (u.can_control !== false);
+    const hasControl = (u.role === 'admin' || u.role === 'superadmin') ? true : (u.can_control !== false);
     if (usersControlFilter === 'enabled') return hasControl;
     if (usersControlFilter === 'readonly') return !hasControl;
     return true;
@@ -318,6 +318,7 @@ export default function AdminPanel() {
                   className="w-full bg-slate-900/70 border border-slate-700 text-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 cursor-pointer"
                 >
                   <option value="all">All Roles</option>
+                  <option value="superadmin">Super Admins Only</option>
                   <option value="admin">Admins Only</option>
                   <option value="user">Standard Users Only</option>
                 </select>
@@ -373,96 +374,124 @@ export default function AdminPanel() {
                   <span className="col-span-4 text-right">Actions</span>
                 </div>
 
-                {displayedUsers.map(u => (
-                  <div
-                    key={u.id}
-                    className="bg-slate-800/50 hover:bg-slate-800/80 border border-slate-700/50 hover:border-slate-600 rounded-xl p-3.5 transition-all duration-150"
-                  >
-                    <div className="md:grid md:grid-cols-12 md:gap-4 md:items-center space-y-3 md:space-y-0">
-                      {/* User Avatar & Name */}
-                      <div className="col-span-4 flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shadow-sm ${
-                          u.role === 'admin' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' : 'bg-slate-700/60 text-slate-300 border border-slate-600/50'
-                        }`}>
-                          {u.username.charAt(0).toUpperCase()}
+                  {displayedUsers.map(u => {
+                    const isTargetAdmin = u.role === 'admin' || u.role === 'superadmin';
+                    const canChangePassword = currentUser?.role === 'superadmin' || u.role === 'user' || u.id === currentUser?.id;
+                    const canDelete = u.id !== currentUser?.id &&
+                                      u.role !== 'superadmin' &&
+                                      !(currentUser?.role === 'admin' && u.role === 'admin');
+                    const deleteTooltip = u.id === currentUser?.id
+                      ? "You cannot delete your own account"
+                      : u.role === 'superadmin'
+                      ? "Super Administrator accounts cannot be deleted"
+                      : (currentUser?.role === 'admin' && u.role === 'admin')
+                      ? "Administrators cannot delete other administrators (Super Admin required)"
+                      : "Delete user";
+
+                    return (
+                      <div
+                        key={u.id}
+                        className="bg-slate-800/50 hover:bg-slate-800/80 border border-slate-700/50 hover:border-slate-600 rounded-xl p-3.5 transition-all duration-150"
+                      >
+                        <div className="md:grid md:grid-cols-12 md:gap-4 md:items-center space-y-3 md:space-y-0">
+                          {/* User Avatar & Name */}
+                          <div className="col-span-4 flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shadow-sm ${
+                              u.role === 'superadmin'
+                                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                : u.role === 'admin' 
+                                ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' 
+                                : 'bg-slate-700/60 text-slate-300 border border-slate-600/50'
+                            }`}>
+                              {u.username.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-slate-200 text-sm">{u.username}</span>
+                                {u.role === 'superadmin' && (
+                                  <Crown className="w-3.5 h-3.5 text-amber-400" title="Super Administrator" />
+                                )}
+                              </div>
+                              <span className="text-[11px] text-slate-500 font-mono">ID: #{u.id}</span>
+                            </div>
+                          </div>
+
+                          {/* Role Badge */}
+                          <div className="col-span-2">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                              u.role === 'superadmin'
+                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                : u.role === 'admin' 
+                                ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' 
+                                : 'bg-slate-700/50 text-slate-300 border border-slate-600'
+                            }`}>
+                              {u.role === 'superadmin' ? <Crown className="w-3 h-3" /> : u.role === 'admin' ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                              {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role.toUpperCase()}
+                            </span>
+                          </div>
+
+                          {/* Created Date */}
+                          <div className="col-span-2 text-xs text-slate-400">
+                            {new Date(u.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="col-span-4 flex items-center gap-2 md:justify-end flex-wrap">
+                            {/* Control Permission Toggle */}
+                            {isTargetAdmin ? (
+                              <span
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 cursor-default select-none"
+                                title="Administrator accounts always retain full device control"
+                              >
+                                <Shield className="w-3.5 h-3.5" />
+                                <span>Full Control</span>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await toggleUserControl(u.id, !u.can_control);
+                                    toast.success(u.can_control ? `"${u.username}" set to read-only` : `Control enabled for "${u.username}"`);
+                                    fetchUsers();
+                                  } catch (err) { toast.error(err.message); }
+                                }}
+                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95 ${
+                                  u.can_control !== false
+                                    ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
+                                    : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20'
+                                }`}
+                                title={u.can_control !== false ? 'Click to revoke device control (Read-Only)' : 'Click to enable device control'}
+                              >
+                                {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                                <span>{u.can_control !== false ? 'Control' : 'Read-Only'}</span>
+                              </button>
+                            )}
+
+                            {/* Change Password */}
+                            <button
+                              onClick={() => setShowPasswordModal(u)}
+                              disabled={!canChangePassword}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-700/80 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-all active:scale-95 border border-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={canChangePassword ? "Change password" : "Only Super Admin can change administrator passwords"}
+                            >
+                              <KeyRound className="w-3.5 h-3.5" />
+                              <span>Password</span>
+                            </button>
+
+                            {/* Delete User */}
+                            <button
+                              onClick={() => setShowDeleteModal(u)}
+                              disabled={!canDelete}
+                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-xs font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={deleteTooltip}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-semibold text-slate-200 text-sm block">{u.username}</span>
-                          <span className="text-[11px] text-slate-500 font-mono">ID: #{u.id}</span>
-                        </div>
                       </div>
-
-                      {/* Role Badge */}
-                      <div className="col-span-2">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          u.role === 'admin' 
-                            ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' 
-                            : 'bg-slate-700/50 text-slate-300 border border-slate-600'
-                        }`}>
-                          {u.role === 'admin' ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                          {u.role.toUpperCase()}
-                        </span>
-                      </div>
-
-                      {/* Created Date */}
-                      <div className="col-span-2 text-xs text-slate-400">
-                        {new Date(u.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="col-span-4 flex items-center gap-2 md:justify-end flex-wrap">
-                        {/* Control Permission Toggle */}
-                        {u.role === 'admin' ? (
-                          <span
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 cursor-default select-none"
-                            title="Administrator accounts always retain full device control"
-                          >
-                            <Shield className="w-3.5 h-3.5" />
-                            <span>Full Control</span>
-                          </span>
-                        ) : (
-                          <button
-                            onClick={async () => {
-                              try {
-                                await toggleUserControl(u.id, !u.can_control);
-                                toast.success(u.can_control ? `"${u.username}" set to read-only` : `Control enabled for "${u.username}"`);
-                                fetchUsers();
-                              } catch (err) { toast.error(err.message); }
-                            }}
-                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95 ${
-                              u.can_control !== false
-                                ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
-                                : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20'
-                            }`}
-                            title={u.can_control !== false ? 'Click to revoke device control (Read-Only)' : 'Click to enable device control'}
-                          >
-                            {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
-                            <span>{u.can_control !== false ? 'Control' : 'Read-Only'}</span>
-                          </button>
-                        )}
-
-                        {/* Change Password */}
-                        <button
-                          onClick={() => setShowPasswordModal(u)}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-700/80 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-all active:scale-95 border border-slate-600"
-                        >
-                          <KeyRound className="w-3.5 h-3.5" />
-                          <span>Password</span>
-                        </button>
-
-                        {/* Delete User */}
-                        <button
-                          onClick={() => setShowDeleteModal(u)}
-                          disabled={u.id === currentUser.id}
-                          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-xs font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
-                          title="Delete user"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  })}
               </div>
             )}
           </div>
@@ -749,7 +778,7 @@ export default function AdminPanel() {
       {/* Add User Modal */}
       {showAddModal && (
         <Modal onClose={() => setShowAddModal(false)} title="Create New System User">
-          <AddUserForm onSubmit={handleCreateUser} onCancel={() => setShowAddModal(false)} />
+          <AddUserForm currentUserRole={currentUser?.role} onSubmit={handleCreateUser} onCancel={() => setShowAddModal(false)} />
         </Modal>
       )}
 
@@ -798,7 +827,7 @@ function Modal({ children, title, onClose }) {
   );
 }
 
-function AddUserForm({ onSubmit, onCancel }) {
+function AddUserForm({ currentUserRole, onSubmit, onCancel }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('user');
@@ -829,7 +858,12 @@ function AddUserForm({ onSubmit, onCancel }) {
         <select value={role} onChange={e => setRole(e.target.value)}
           className="w-full bg-slate-900/60 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition-all cursor-pointer">
           <option value="user">Standard User (Operator)</option>
-          <option value="admin">Administrator (Full Access)</option>
+          {currentUserRole === 'superadmin' && (
+            <>
+              <option value="admin">Administrator (Devices & Parking)</option>
+              <option value="superadmin">Super Administrator (Full Ownership)</option>
+            </>
+          )}
         </select>
       </div>
       <div className="flex gap-3 justify-end pt-3 border-t border-slate-700/50">

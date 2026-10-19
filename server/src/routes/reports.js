@@ -49,7 +49,7 @@ router.get('/', (req, res) => {
     let whereClause = ' WHERE 1=1';
     const params = [];
     
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
       whereClause += ' AND user_id = ?';
       params.push(req.user.id);
     }

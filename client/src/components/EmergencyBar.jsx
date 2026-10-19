@@ -135,7 +135,7 @@ export default function EmergencyBar({ emergencyState, onEmergencyChange }) {
               </button>
             )}
 
-            {user?.role === 'admin' ? (
+            {(user?.role === 'admin' || user?.role === 'superadmin') ? (
               <button
                 onClick={handleClear}
                 disabled={loading}
@@ -156,7 +156,7 @@ export default function EmergencyBar({ emergencyState, onEmergencyChange }) {
   }
 
   // If Normal Mode & Admin: Show Quick-Access Emergency Protocol Bar
-  if (user?.role === 'admin') {
+  if (user?.role === 'admin' || user?.role === 'superadmin') {
     return (
       <>
         <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">

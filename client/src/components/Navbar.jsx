@@ -100,9 +100,11 @@ export default function Navbar({ notifications = [], onBellClick, onChangePasswo
                 {user?.username?.charAt(0).toUpperCase()}
               </div>
               <span className="hidden sm:block text-sm font-medium">{user?.username}</span>
-              {user?.role === 'admin' && (
-                <span className="hidden sm:inline text-[10px] bg-cyan-500/20 text-cyan-400 px-1.5 py-0.5 rounded-full font-medium">Admin</span>
-              )}
+              {user?.role === 'superadmin' ? (
+                <span className="hidden sm:inline text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full font-medium">Super Admin</span>
+              ) : user?.role === 'admin' ? (
+                <span className="hidden sm:inline text-[10px] bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-1.5 py-0.5 rounded-full font-medium">Admin</span>
+              ) : null}
               <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -112,7 +114,9 @@ export default function Navbar({ notifications = [], onBellClick, onChangePasswo
                 <div className="absolute right-0 top-full mt-2 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-20 overflow-hidden">
                   <div className="px-4 py-3 border-b border-slate-700">
                     <p className="text-sm font-medium text-slate-200">{user?.username}</p>
-                    <p className="text-xs text-slate-400 capitalize">{user?.role} account</p>
+                    <p className="text-xs text-slate-400 capitalize">
+                      {user?.role === 'superadmin' ? 'Super Administrator' : `${user?.role} account`}
+                    </p>
                   </div>
                   <div className="py-1">
                     <button

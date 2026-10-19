@@ -18,7 +18,7 @@ router.use(authenticateToken);
 
 // Middleware to check can_control for non-admins
 function checkCanControl(req, res, next) {
-  if (req.user.role === 'admin') return next();
+  if (req.user.role === 'admin' || req.user.role === 'superadmin') return next();
   try {
     const db = getDb();
     const user = db.prepare('SELECT can_control FROM users WHERE id = ?').get(req.user.id);
@@ -102,7 +102,7 @@ router.put('/:id', checkCanControl, requireDeviceOnline, (req, res) => {
       if (slots.length > 0) {
         const occupied = slots.filter(s => s.occupied === 1 || s.occupied === true).length;
         const available = Math.max(0, slots.length - occupied);
-        if (available === 0 && req.user.role !== 'admin') {
+        if (available === 0 && req.user.role !== 'admin' && req.user.role !== 'superadmin') {
           return res.status(400).json({
             message: 'Cannot open boom gate: Parking floor is at full capacity (0 slots available).'
           });

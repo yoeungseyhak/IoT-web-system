@@ -14,7 +14,7 @@ function initDatabase() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT DEFAULT 'user' CHECK(role IN ('admin','user')),
+            role TEXT DEFAULT 'user' CHECK(role IN ('superadmin','admin','user')),
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -88,14 +88,44 @@ function initDatabase() {
         // column already exists
     }
 
+    // Migration for existing database: ensure role column CHECK constraint allows 'superadmin'
+    try {
+        const userTableSql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get()?.sql || '';
+        if (!userTableSql.includes('superadmin')) {
+            db.exec(`
+                PRAGMA foreign_keys=off;
+                BEGIN TRANSACTION;
+                CREATE TABLE IF NOT EXISTS users_temp (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT DEFAULT 'user' CHECK(role IN ('superadmin','admin','user')),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    can_control INTEGER DEFAULT 1
+                );
+                INSERT INTO users_temp (id, username, password_hash, role, created_at, can_control)
+                SELECT id, username, password_hash, role, created_at, COALESCE(can_control, 1) FROM users;
+                DROP TABLE users;
+                ALTER TABLE users_temp RENAME TO users;
+                COMMIT;
+                PRAGMA foreign_keys=on;
+            `);
+        }
+    } catch (e) {
+        console.error("Migration error updating users table CHECK constraint:", e);
+    }
+
     // Ensure all administrator accounts always have full device control (can_control = 1)
-    db.prepare("UPDATE users SET can_control = 1 WHERE role = 'admin'").run();
+    db.prepare("UPDATE users SET can_control = 1 WHERE role IN ('admin', 'superadmin')").run();
+
+    // Ensure primary admin account is upgraded to superadmin
+    db.prepare("UPDATE users SET role = 'superadmin' WHERE username = 'admin' AND role = 'admin'").run();
 
     // Seed Data
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
     if (userCount === 0) {
         const insertUser = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)');
-        insertUser.run('admin', bcrypt.hashSync('Admin@12345', 10), 'admin');
+        insertUser.run('admin', bcrypt.hashSync('Admin@12345', 10), 'superadmin');
         insertUser.run('user1', bcrypt.hashSync('User@12345', 10), 'user');
 
         const insertDevice = db.prepare('INSERT INTO devices (id, name, type, pin, state) VALUES (?, ?, ?, ?, ?)');

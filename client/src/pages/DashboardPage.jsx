@@ -225,7 +225,7 @@ export default function DashboardPage() {
 
       if (data.type === "new-report") {
         window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
-        if (user?.role === "admin" && data.report?.username !== user?.username) {
+        if ((user?.role === "admin" || user?.role === "superadmin") && data.report?.username !== user?.username) {
           const now = Date.now();
           const dedupKey = `new-report-${data.report?.id}`;
           const lastTime = lastNotifRef.current[dedupKey] || 0;
@@ -344,7 +344,7 @@ export default function DashboardPage() {
         ? "bg-red-500/20 text-red-400 border-red-500/30"
         : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
     },
-    ...(user?.role === "admin"
+    ...(user?.role === "admin" || user?.role === "superadmin"
       ? [{ id: "admin", label: "Admin", icon: Users }]
       : []),
     { id: "logs", label: "Logs", icon: Clock },
@@ -430,7 +430,7 @@ export default function DashboardPage() {
                   <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
                     Building Components ({devices.length})
                   </h3>
-                  {user?.role === "admin" && (
+                  {(user?.role === "admin" || user?.role === "superadmin") && (
                     <button
                       type="button"
                       onClick={() => setAddComponentOpen(true)}
@@ -477,7 +477,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {activeTab === "admin" && user?.role === "admin" && <AdminPanel />}
+            {activeTab === "admin" && (user?.role === "admin" || user?.role === "superadmin") && <AdminPanel />}
 
             {activeTab === "logs" && <ActivityLog />}
           </>
