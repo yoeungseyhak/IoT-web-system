@@ -209,7 +209,7 @@ To maintain security and prevent exposing system specifications publicly on the 
 | :--- | :--- | :--- |
 | **Rolling Door Motor (IN1)** | `GPIO 18` | L9110S Motor Driver Forward |
 | **Rolling Door Motor (IN2)** | `GPIO 19` | L9110S Motor Driver Reverse |
-| **Boom Gate Servo** | `GPIO 4` | SG90 9g Micro Servo (0° Closed, 90° Open) |
+| **Boom Gate Servo** | `GPIO 27` | SG90 9g Micro Servo (0° Closed, 90° Open) |
 | **Zone A Lighting** | `GPIO 21` | Relay Channel 1 / LED |
 | **Zone B Lighting** | `GPIO 22` | Relay Channel 2 / LED |
 | **Emergency Party Siren** | `GPIO 23` | High-visibility emergency beacon / LED |

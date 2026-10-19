@@ -202,8 +202,9 @@ export default function AdminPanel() {
 
   // Filter users by client-side can_control if requested
   const displayedUsers = users.filter(u => {
-    if (usersControlFilter === 'enabled') return u.can_control !== false;
-    if (usersControlFilter === 'readonly') return u.can_control === false;
+    const hasControl = u.role === 'admin' ? true : (u.can_control !== false);
+    if (usersControlFilter === 'enabled') return hasControl;
+    if (usersControlFilter === 'readonly') return !hasControl;
     return true;
   });
 
@@ -411,25 +412,34 @@ export default function AdminPanel() {
                       {/* Action Buttons */}
                       <div className="col-span-4 flex items-center gap-2 md:justify-end flex-wrap">
                         {/* Control Permission Toggle */}
-                        <button
-                          onClick={async () => {
-                            try {
-                              await toggleUserControl(u.id, !u.can_control);
-                              toast.success(u.can_control ? 'User set to read-only' : 'User control enabled');
-                              fetchUsers();
-                            } catch (err) { toast.error(err.message); }
-                          }}
-                          disabled={u.id === currentUser.id}
-                          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95 ${
-                            u.can_control !== false
-                              ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
-                              : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20'
-                          } disabled:opacity-30 disabled:cursor-not-allowed`}
-                          title={u.can_control !== false ? 'Click to revoke device control' : 'Click to enable device control'}
-                        >
-                          {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
-                          <span>{u.can_control !== false ? 'Control' : 'Read-Only'}</span>
-                        </button>
+                        {u.role === 'admin' ? (
+                          <span
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 cursor-default select-none"
+                            title="Administrator accounts always retain full device control"
+                          >
+                            <Shield className="w-3.5 h-3.5" />
+                            <span>Full Control</span>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await toggleUserControl(u.id, !u.can_control);
+                                toast.success(u.can_control ? `"${u.username}" set to read-only` : `Control enabled for "${u.username}"`);
+                                fetchUsers();
+                              } catch (err) { toast.error(err.message); }
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95 ${
+                              u.can_control !== false
+                                ? 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20'
+                                : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20'
+                            }`}
+                            title={u.can_control !== false ? 'Click to revoke device control (Read-Only)' : 'Click to enable device control'}
+                          >
+                            {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                            <span>{u.can_control !== false ? 'Control' : 'Read-Only'}</span>
+                          </button>
+                        )}
 
                         {/* Change Password */}
                         <button

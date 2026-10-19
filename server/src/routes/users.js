@@ -41,7 +41,7 @@ router.get('/', (req, res) => {
       sql += ' LIMIT ? OFFSET ?';
       const pageParams = [...params, safeLimit, offset];
       const users = db.prepare(sql).all(...pageParams);
-      const parsedUsers = users.map(u => ({ ...u, can_control: u.can_control !== 0 }));
+      const parsedUsers = users.map(u => ({ ...u, can_control: u.role === 'admin' ? true : (u.can_control !== 0) }));
       return res.json({
         users: parsedUsers,
         total,
@@ -54,7 +54,7 @@ router.get('/', (req, res) => {
     // Default unpaginated query (safe limit 500)
     sql += ' LIMIT 500';
     const users = db.prepare(sql).all(...params);
-    const parsedUsers = users.map(u => ({ ...u, can_control: u.can_control !== 0 }));
+    const parsedUsers = users.map(u => ({ ...u, can_control: u.role === 'admin' ? true : (u.can_control !== 0) }));
     res.json(parsedUsers);
   } catch (err) {
     console.error('List users error:', err);
@@ -72,14 +72,21 @@ router.put('/:id/control', (req, res) => {
       return res.status(400).json({ message: 'can_control is required' });
     }
 
-    const controlValue = can_control ? 1 : 0;
     const db = getDb();
     
-    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id);
+    const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(id);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Protection: Administrators always have full control privileges and cannot be set to read-only!
+    if (user.role === 'admin') {
+      return res.status(400).json({
+        message: 'Administrator accounts always retain full device control and cannot be restricted to read-only.'
+      });
+    }
+
+    const controlValue = can_control ? 1 : 0;
     db.prepare('UPDATE users SET can_control = ? WHERE id = ?').run(controlValue, id);
 
     // Log the action

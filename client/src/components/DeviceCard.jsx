@@ -27,7 +27,7 @@ export default function DeviceCard({ device, onUpdate, isParkingFull }) {
   const { user } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const isOnline = deviceOnline ?? esp32Online;
-  const isReadOnly = user?.can_control === false;
+  const isReadOnly = user?.role !== 'admin' && user?.can_control === false;
   const disabled = isReadOnly || !isOnline;
 
   const handleUpdate = async (newState) => {
@@ -325,7 +325,7 @@ function BoomGateCard({ device, onUpdate, loading, disabled, isOffline, isReadOn
   const isAdmin = user?.role === 'admin';
   const [showEditModal, setShowEditModal] = useState(false);
   const status = device.state?.status || 'closed';
-  const isOpen = status === 'open';
+  const isOpen = status === 'open' || status === 'opened';
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-xl p-5 hover:border-slate-600 transition-all duration-300 flex flex-col justify-between">

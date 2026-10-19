@@ -19,7 +19,7 @@ function setDeviceStatus(online) {
     deviceState.lastSeen = Date.now();
 }
 
-function broadcastToAll(message) {
+function broadcastToAll(message, excludeDevice = false) {
     const msgStr = typeof message === 'string' ? message : JSON.stringify(message);
     webClients.forEach(client => {
         if (client.readyState === 1) {
@@ -28,7 +28,7 @@ function broadcastToAll(message) {
             webClients.delete(client);
         }
     });
-    if (deviceClient && deviceClient.readyState === 1) {
+    if (!excludeDevice && deviceClient && deviceClient.readyState === 1) {
         deviceClient.send(msgStr);
     }
 }
@@ -122,6 +122,7 @@ function setupWebSocket(server) {
                         else if (normalizedId === 'light4') normalizedId = 'light-4';
                         else if (normalizedId === 'light5') normalizedId = 'light-5';
                         else if (normalizedId === 'party') normalizedId = 'party-light';
+                        else if (normalizedId === 'gate' || normalizedId === 'boomgate') normalizedId = 'boom-gate';
 
                         const db = getDb();
                         if (normalizedId === 'all_lights' || normalizedId === 'all') {
@@ -135,7 +136,7 @@ function setupWebSocket(server) {
                                     state: data.state,
                                     triggeredBy: 'device',
                                     timestamp: Date.now()
-                                });
+                                }, true);
                             });
                         } else {
                             db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
@@ -147,7 +148,7 @@ function setupWebSocket(server) {
                                 state: data.state,
                                 triggeredBy: 'device',
                                 timestamp: Date.now()
-                            });
+                            }, true);
                         }
                     } else if (data.type === 'slot-update' || data.type === 'parking-slot-report') {
                         const db = getDb();
@@ -169,7 +170,7 @@ function setupWebSocket(server) {
                             stats,
                             triggeredBy: 'esp32',
                             timestamp: Date.now()
-                        });
+                        }, true);
                     }
                 } catch (e) {
                     console.error("Device message parse error", e);

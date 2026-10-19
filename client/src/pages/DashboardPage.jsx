@@ -416,12 +416,11 @@ export default function DashboardPage() {
                     className={`w-2.5 h-2.5 rounded-full ${isDeviceOnline ? "bg-green-400 animate-pulse" : "bg-red-400"}`}
                   />
                   <span className="font-medium">
-                    ESP32 Controller:{" "}
                     {isDeviceOnline ? "Connected & Healthy" : "Offline / Not Responding"}
                   </span>
                   {!isDeviceOnline && (
                     <span className="text-xs text-red-400/90 ml-auto flex items-center gap-1.5 font-medium">
-                      <Lock className="w-3.5 h-3.5" /> Controls Locked — Connect ESP32 to operate
+                      <Lock className="w-3.5 h-3.5" /> Controls Locked — Connect device to operate
                     </span>
                   )}
                 </div>

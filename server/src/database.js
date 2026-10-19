@@ -88,6 +88,9 @@ function initDatabase() {
         // column already exists
     }
 
+    // Ensure all administrator accounts always have full device control (can_control = 1)
+    db.prepare("UPDATE users SET can_control = 1 WHERE role = 'admin'").run();
+
     // Seed Data
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
     if (userCount === 0) {
@@ -100,7 +103,7 @@ function initDatabase() {
         insertDevice.run('light-2', 'Light 2', 'light', 'GPIO 4', '{"on":false}');
         insertDevice.run('light-3', 'Light 3', 'light', 'GPIO 5', '{"on":false}');
         insertDevice.run('rolling-door', 'Rolling Door', 'rolling-door', 'GPIO 18, 19', '{"status":"closed"}');
-        insertDevice.run('boom-gate', 'Boom Gate', 'boom-gate', 'GPIO 21, 22', '{"status":"closed"}');
+        insertDevice.run('boom-gate', 'Boom Gate', 'boom-gate', 'GPIO 27', '{"status":"closed"}');
         insertDevice.run('party-light', 'Party Light', 'party-light', 'GPIO 23', '{"on":false,"brightness":100,"color":"#ff00ff","mode":"static"}');
     }
 
@@ -109,7 +112,7 @@ function initDatabase() {
     db.prepare("UPDATE devices SET pin = 'GPIO 4' WHERE id = 'light-2' AND (pin IS NULL OR pin = '')").run();
     db.prepare("UPDATE devices SET pin = 'GPIO 5' WHERE id = 'light-3' AND (pin IS NULL OR pin = '')").run();
     db.prepare("UPDATE devices SET pin = 'GPIO 18, 19' WHERE id = 'rolling-door' AND (pin IS NULL OR pin = '')").run();
-    db.prepare("UPDATE devices SET pin = 'GPIO 21, 22' WHERE id = 'boom-gate' AND (pin IS NULL OR pin = '')").run();
+    db.prepare("UPDATE devices SET pin = 'GPIO 27' WHERE id = 'boom-gate' AND (pin IS NULL OR pin = '' OR pin = 'GPIO 21, 22')").run();
     db.prepare("UPDATE devices SET pin = 'GPIO 23' WHERE id = 'party-light' AND (pin IS NULL OR pin = '')").run();
 
     // Seed system_settings if empty
