@@ -126,51 +126,74 @@ function setupWebSocket(server) {
 
                         const db = getDb();
                         if (normalizedId === 'all_lights' || normalizedId === 'all') {
-                            const lights = db.prepare("SELECT id FROM devices WHERE type = 'light'").all();
+                            const lights = db.prepare("SELECT id, state FROM devices WHERE type = 'light'").all();
                             lights.forEach(l => {
+                                const currState = JSON.parse(l.state || '{}');
+                                const keys = Object.keys(data.state || {});
+                                const isDiff = keys.length === 0 || keys.some(k => currState[k] !== data.state[k]);
+                                if (isDiff) {
+                                    const merged = { ...currState, ...data.state };
+                                    db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                                      .run(JSON.stringify(merged), l.id);
+                                    broadcastToAll({
+                                        type: 'device-update',
+                                        deviceId: l.id,
+                                        state: merged,
+                                        triggeredBy: 'device',
+                                        timestamp: Date.now()
+                                    }, true);
+                                }
+                            });
+                        } else {
+                            const existing = db.prepare('SELECT state FROM devices WHERE id = ?').get(normalizedId);
+                            let isDiff = true;
+                            let merged = data.state;
+                            if (existing) {
+                                const currState = JSON.parse(existing.state || '{}');
+                                const keys = Object.keys(data.state || {});
+                                isDiff = keys.length === 0 || keys.some(k => currState[k] !== data.state[k]);
+                                merged = { ...currState, ...data.state };
+                            }
+
+                            if (isDiff) {
                                 db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-                                  .run(JSON.stringify(data.state), l.id);
+                                  .run(JSON.stringify(merged), normalizedId);
+                                
                                 broadcastToAll({
                                     type: 'device-update',
-                                    deviceId: l.id,
-                                    state: data.state,
+                                    deviceId: normalizedId,
+                                    state: merged,
                                     triggeredBy: 'device',
                                     timestamp: Date.now()
                                 }, true);
-                            });
-                        } else {
-                            db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-                              .run(JSON.stringify(data.state), normalizedId);
-                            
-                            broadcastToAll({
-                                type: 'device-update',
-                                deviceId: normalizedId,
-                                state: data.state,
-                                triggeredBy: 'device',
-                                timestamp: Date.now()
-                            }, true);
+                            }
                         }
                     } else if (data.type === 'slot-update' || data.type === 'parking-slot-report') {
                         const db = getDb();
                         const slotId = data.slotId || data.id;
                         const occupiedVal = data.occupied ? 1 : 0;
-                        db.prepare('UPDATE parking_slots SET occupied = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-                          .run(occupiedVal, slotId);
-                        
-                        const allSlots = db.prepare('SELECT * FROM parking_slots ORDER BY id ASC').all();
-                        const total = allSlots.length;
-                        const occupiedCount = allSlots.filter(s => s.occupied === 1).length;
-                        const available = Math.max(0, total - occupiedCount);
-                        const stats = { total, occupied: occupiedCount, available, isFull: total > 0 && available === 0 };
+                        const existingSlot = db.prepare('SELECT occupied FROM parking_slots WHERE id = ?').get(slotId);
 
-                        broadcastToAll({
-                            type: 'slot-update',
-                            slotId,
-                            occupied: data.occupied,
-                            stats,
-                            triggeredBy: 'esp32',
-                            timestamp: Date.now()
-                        }, true);
+                        // Broadcast only when parking slot occupied state actually changes
+                        if (!existingSlot || existingSlot.occupied !== occupiedVal) {
+                            db.prepare('UPDATE parking_slots SET occupied = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+                              .run(occupiedVal, slotId);
+                            
+                            const allSlots = db.prepare('SELECT * FROM parking_slots ORDER BY id ASC').all();
+                            const total = allSlots.length;
+                            const occupiedCount = allSlots.filter(s => s.occupied === 1).length;
+                            const available = Math.max(0, total - occupiedCount);
+                            const stats = { total, occupied: occupiedCount, available, isFull: total > 0 && available === 0 };
+
+                            broadcastToAll({
+                                type: 'slot-update',
+                                slotId,
+                                occupied: Boolean(data.occupied),
+                                stats,
+                                triggeredBy: 'esp32',
+                                timestamp: Date.now()
+                            }, true);
+                        }
                     }
                 } catch (e) {
                     console.error("Device message parse error", e);

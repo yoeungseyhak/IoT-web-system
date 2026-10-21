@@ -110,6 +110,17 @@ router.put('/:id', checkCanControl, requireDeviceOnline, (req, res) => {
       }
     }
 
+    // Check if the requested state actually changes anything
+    const stateKeys = Object.keys(state);
+    const hasChanged = stateKeys.length === 0 || stateKeys.some(k => existingState[k] !== state[k]);
+    if (!hasChanged) {
+      return res.json({
+        ...device,
+        state: existingState,
+        updated_at: device.updated_at
+      });
+    }
+
     // Merge existing state with new state (partial update)
     const newState = { ...existingState, ...state };
 

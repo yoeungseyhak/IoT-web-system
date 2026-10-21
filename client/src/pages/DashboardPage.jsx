@@ -37,12 +37,17 @@ export default function DashboardPage() {
 
   const audioCtxRef = useRef(null);
   const lastNotifRef = useRef({});
+  const deviceStatesRef = useRef({});
 
   // Fetch devices on mount
   const fetchDevices = useCallback(async () => {
     try {
       const data = await getDevices();
-      setDevices(data.devices || []);
+      const devList = data.devices || [];
+      devList.forEach((d) => {
+        deviceStatesRef.current[d.id] = { ...(d.state || {}) };
+      });
+      setDevices(devList);
     } catch (err) {
       toast.error("Failed to load devices");
     } finally {
@@ -126,7 +131,11 @@ export default function DashboardPage() {
       const data = e.detail;
       
       if (data.type === 'init-state') {
-        setDevices(data.devices || []);
+        const devList = data.devices || [];
+        devList.forEach((d) => {
+          deviceStatesRef.current[d.id] = { ...(d.state || {}) };
+        });
+        setDevices(devList);
         if (data.emergency) setEmergencyState(data.emergency);
         if (data.parking) {
           setParkingSlots(data.parking.slots || []);
@@ -135,42 +144,74 @@ export default function DashboardPage() {
       }
 
       if (data.type === "device-update") {
-        // Update device state
+        const devId = data.deviceId;
+        const incomingState = data.state || {};
+        const prevState = deviceStatesRef.current[devId];
+
+        // 1. Strict status change detection: only trigger notification if an actual key changed value!
+        let statusChanged = false;
+        if (!prevState) {
+          // First time seeing this device state, register baseline without sending notification
+          deviceStatesRef.current[devId] = { ...incomingState };
+        } else {
+          for (const key of Object.keys(incomingState)) {
+            if (prevState[key] !== incomingState[key]) {
+              statusChanged = true;
+              break;
+            }
+          }
+        }
+
+        // Always update deviceStatesRef with latest merged state
+        deviceStatesRef.current[devId] = {
+          ...(deviceStatesRef.current[devId] || {}),
+          ...incomingState,
+        };
+
+        // Update device state in UI
         setDevices((prev) =>
           prev.map((d) =>
-            d.id === data.deviceId
-              ? { ...d, state: { ...d.state, ...data.state } }
+            d.id === devId
+              ? { ...d, state: { ...d.state, ...incomingState } }
               : d,
           ),
         );
 
-        // Build notification message
-        const deviceNames = {
-          "light-1": "Light 1",
-          "light-2": "Light 2",
-          "light-3": "Light 3",
-          "rolling-door": "Rolling Door",
-          "boom-gate": "Boom Gate",
-          "party-light": "Party Light",
-        };
-        const devName = deviceNames[data.deviceId] || data.deviceId;
-        const stateStr = Object.entries(data.state || {})
-          .map(([k, v]) => `${k}: ${v}`)
-          .join(", ");
-        const message = `${devName} → ${stateStr}`;
+        // 2. Only send notification once when status ACTUALLY changes and was triggered by external action!
+        if (statusChanged && data.triggeredBy && data.triggeredBy !== user?.username) {
+          const deviceNames = {
+            "light-1": "Light 1",
+            "light-2": "Light 2",
+            "light-3": "Light 3",
+            "rolling-door": "Rolling Door",
+            "boom-gate": "Boom Gate",
+            "party-light": "Party Light",
+          };
+          const devName = deviceNames[devId] || devId;
 
-        // Toast notification (only if triggered by someone else)
-        if (data.triggeredBy && data.triggeredBy !== user?.username) {
+          let stateDesc = "";
+          if (incomingState.on !== undefined) {
+            stateDesc = incomingState.on ? "turned ON" : "turned OFF";
+          } else if (incomingState.status !== undefined) {
+            stateDesc = `is now ${incomingState.status.toUpperCase()}`;
+          } else {
+            stateDesc = Object.entries(incomingState)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ");
+          }
+
+          const message = `${devName} ${stateDesc}`;
           const now = Date.now();
-          const dedupKey = `${data.deviceId}-${stateStr}`;
+          const dedupKey = `${devId}-${stateDesc}`;
           const lastTime = lastNotifRef.current[dedupKey] || 0;
-          
-          if (now - lastTime > 1500) {
+
+          // Prevent duplicate burst within 3000ms
+          if (now - lastTime > 3000) {
             lastNotifRef.current[dedupKey] = now;
-            
+
             // Add to notification list
             const notif = {
-              deviceId: data.deviceId,
+              deviceId: devId,
               message,
               triggeredBy: data.triggeredBy,
               timestamp: data.timestamp || now,
@@ -179,14 +220,15 @@ export default function DashboardPage() {
             setNotifications((prev) => [notif, ...prev].slice(0, 50));
 
             toast(message, {
-              icon: data.deviceId?.includes("light")
+              id: dedupKey,
+              icon: devId?.includes("light")
                 ? "💡"
-                : data.deviceId === "boom-gate"
+                : devId === "boom-gate"
                   ? "🚧"
-                  : data.deviceId === "rolling-door"
+                  : devId === "rolling-door"
                     ? "🚪"
                     : "🎉",
-              duration: 3000,
+              duration: 3500,
             });
             playNotifSound();
             sendBrowserNotif("Floor Management", `${data.triggeredBy}: ${message}`);
