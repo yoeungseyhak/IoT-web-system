@@ -115,17 +115,19 @@ function initDatabase() {
         console.error("Migration error updating users table CHECK constraint:", e);
     }
 
-    // Ensure all administrator accounts always have full device control (can_control = 1)
-    db.prepare("UPDATE users SET can_control = 1 WHERE role IN ('admin', 'superadmin')").run();
-
-    // Ensure all accounts named 'admin' or 'superadmin' are upgraded to superadmin
-    db.prepare("UPDATE users SET role = 'superadmin', can_control = 1 WHERE username IN ('admin', 'superadmin')").run();
-
-    // Ensure at least one superadmin exists in the database
-    const existingSuperCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'superadmin'").get().count;
-    if (existingSuperCount === 0) {
+    // Ensure only the primary Super Admin has role = 'superadmin' (Strictly 1 Super Admin)
+    const superAdmins = db.prepare("SELECT id, username FROM users WHERE role = 'superadmin' ORDER BY id ASC").all();
+    if (superAdmins.length > 1) {
+        // Retain the primary superadmin ('admin' or lowest id) and demote any extras to 'admin'
+        const primarySuper = superAdmins.find(u => u.username === 'admin' || u.username === 'superadmin') || superAdmins[0];
+        db.prepare("UPDATE users SET role = 'admin' WHERE role = 'superadmin' AND id != ?").run(primarySuper.id);
+    } else if (superAdmins.length === 0) {
+        // Ensure at least one superadmin exists in the database
         db.prepare("UPDATE users SET role = 'superadmin', can_control = 1 WHERE id = (SELECT MIN(id) FROM users)").run();
     }
+
+    // Ensure the single Super Administrator always has full device control (can_control = 1)
+    db.prepare("UPDATE users SET can_control = 1 WHERE role = 'superadmin'").run();
 
 
     // Seed Data

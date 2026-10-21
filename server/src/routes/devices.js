@@ -16,9 +16,9 @@ const rollingDoorTimers = new Map();
 
 router.use(authenticateToken);
 
-// Middleware to check can_control for non-admins
+// Middleware to check can_control (Super Admin is always allowed; Admins and Users require can_control !== 0)
 function checkCanControl(req, res, next) {
-  if (req.user.role === 'admin' || req.user.role === 'superadmin') return next();
+  if (req.user.role === 'superadmin') return next();
   try {
     const db = getDb();
     const user = db.prepare('SELECT can_control FROM users WHERE id = ?').get(req.user.id);

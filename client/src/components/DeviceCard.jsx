@@ -27,7 +27,7 @@ export default function DeviceCard({ device, onUpdate, isParkingFull }) {
   const { user } = useContext(AuthContext);
   const [loading, setLoading] = useState(false);
   const isOnline = deviceOnline ?? esp32Online;
-  const isReadOnly = (user?.role !== 'admin' && user?.role !== 'superadmin') && user?.can_control === false;
+  const isReadOnly = (user?.role !== 'superadmin') && user?.can_control === false;
   const disabled = isReadOnly || !isOnline;
 
   const handleUpdate = async (newState) => {

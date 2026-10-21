@@ -15,13 +15,13 @@ function authenticateToken(req, res, next) {
       const db = getDb();
       const liveUser = db.prepare('SELECT id, username, role, can_control FROM users WHERE id = ?').get(decoded.id);
       if (liveUser) {
-        const isSuper = liveUser.role === 'superadmin' || liveUser.username === 'admin' || liveUser.username === 'superadmin';
+        const isSuper = liveUser.role === 'superadmin';
         const effectiveRole = isSuper ? 'superadmin' : liveUser.role;
         req.user = {
           ...decoded,
           username: liveUser.username,
           role: effectiveRole,
-          can_control: (effectiveRole === 'admin' || effectiveRole === 'superadmin') ? true : (liveUser.can_control !== 0)
+          can_control: isSuper ? true : (liveUser.can_control !== 0)
         };
       } else {
         req.user = decoded;

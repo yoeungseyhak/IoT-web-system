@@ -47,6 +47,10 @@ router.get('/status', (req, res) => {
 // Trigger Emergency Evacuation (Opens all exits, turns lights on, sounds alarm)
 router.post('/evacuate', (req, res) => {
   try {
+    if (req.user.role !== 'superadmin' && req.user.can_control === false) {
+      return res.status(403).json({ message: 'Control disabled. Your account is in read-only mode.' });
+    }
+
     const db = getDb();
     emergencyState = {
       mode: 'evacuate',
@@ -102,6 +106,10 @@ router.post('/evacuate', (req, res) => {
 // Trigger Master Lockdown (Closes doors and gates)
 router.post('/lockdown', requireAdmin, (req, res) => {
   try {
+    if (req.user.role !== 'superadmin' && req.user.can_control === false) {
+      return res.status(403).json({ message: 'Control disabled. Your account is in read-only mode.' });
+    }
+
     const db = getDb();
     emergencyState = {
       mode: 'lockdown',

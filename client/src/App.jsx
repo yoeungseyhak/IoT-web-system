@@ -108,6 +108,19 @@ export default function App() {
           setDeviceOnline(Boolean(data.online));
         } else if (data.type === 'init-state' && data.deviceStatus) {
           setDeviceOnline(Boolean(data.deviceStatus.online));
+        } else if (data.type === 'user-control-update') {
+          setUser(prev => {
+            if (prev && prev.id === data.userId) {
+              const updatedControl = Boolean(data.can_control);
+              if (updatedControl) {
+                toast.success('Device control enabled for your account');
+              } else {
+                toast.error('Device control has been revoked by Super Admin (Read-Only Mode)');
+              }
+              return { ...prev, can_control: updatedControl };
+            }
+            return prev;
+          });
         }
         // Expose message via custom event to avoid deep prop drilling for real-time
         window.dispatchEvent(new CustomEvent('ws-message', { detail: data }));

@@ -41,7 +41,7 @@ router.get('/', (req, res) => {
       sql += ' LIMIT ? OFFSET ?';
       const pageParams = [...params, safeLimit, offset];
       const users = db.prepare(sql).all(...pageParams);
-      const parsedUsers = users.map(u => ({ ...u, can_control: (u.role === 'admin' || u.role === 'superadmin') ? true : (u.can_control !== 0) }));
+      const parsedUsers = users.map(u => ({ ...u, can_control: (u.role === 'superadmin') ? true : (u.can_control !== 0) }));
       return res.json({
         users: parsedUsers,
         total,
@@ -54,7 +54,7 @@ router.get('/', (req, res) => {
     // Default unpaginated query (safe limit 500)
     sql += ' LIMIT 500';
     const users = db.prepare(sql).all(...params);
-    const parsedUsers = users.map(u => ({ ...u, can_control: (u.role === 'admin' || u.role === 'superadmin') ? true : (u.can_control !== 0) }));
+    const parsedUsers = users.map(u => ({ ...u, can_control: (u.role === 'superadmin') ? true : (u.can_control !== 0) }));
     res.json(parsedUsers);
   } catch (err) {
     console.error('List users error:', err);
@@ -79,10 +79,19 @@ router.put('/:id/control', (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Protection: Administrators and Super Administrators always have full control privileges and cannot be set to read-only!
-    if (user.role === 'admin' || user.role === 'superadmin') {
+    // Protection: Super Administrator permanently retains full control privileges
+    if (user.role === 'superadmin') {
       return res.status(400).json({
-        message: 'Administrator and Super Administrator accounts always retain full device control and cannot be restricted to read-only.'
+        message: 'Super Administrator account permanently retains full device control and cannot be restricted to read-only.'
+      });
+    }
+
+    const isSuperAdminCaller = req.user.role === 'superadmin';
+
+    // Protection: Only Super Administrator can disable/enable control on Admin accounts
+    if (user.role === 'admin' && !isSuperAdminCaller) {
+      return res.status(403).json({
+        message: 'Only a Super Administrator can modify device control permissions for Administrator accounts.'
       });
     }
 
@@ -90,11 +99,26 @@ router.put('/:id/control', (req, res) => {
     db.prepare('UPDATE users SET can_control = ? WHERE id = ?').run(controlValue, id);
 
     // Log the action
+    const actorTitle = isSuperAdminCaller ? 'Super Admin' : 'Admin';
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, req.user.username, 'update-control', `Admin ${controlValue ? 'enabled' : 'disabled'} control for user "${user.username}"`);
+      .run(req.user.id, req.user.username, 'update-control', `${actorTitle} ${controlValue ? 'enabled' : 'disabled'} control for ${user.role} "${user.username}"`);
 
     const updatedUser = db.prepare('SELECT id, username, role, can_control, created_at FROM users WHERE id = ?').get(id);
     updatedUser.can_control = updatedUser.can_control !== 0;
+
+    // Real-time broadcast to all connected WebSocket clients
+    try {
+      const { broadcastToAll } = require('../websocket');
+      broadcastToAll({
+        type: 'user-control-update',
+        userId: updatedUser.id,
+        username: updatedUser.username,
+        role: updatedUser.role,
+        can_control: updatedUser.can_control
+      });
+    } catch (wsErr) {
+      console.error('Failed to broadcast user-control-update:', wsErr);
+    }
     
     res.json(updatedUser);
   } catch (err) {
@@ -117,15 +141,27 @@ router.post('/', (req, res) => {
     }
 
     const trimmedUsername = String(username).trim();
-    const isSuperTarget = trimmedUsername.toLowerCase() === 'superadmin' || trimmedUsername.toLowerCase() === 'admin';
-    let requestedRole = isSuperTarget ? 'superadmin' : ((role === 'superadmin' || role === 'admin') ? role : 'user');
+    const isSuperAdminCaller = req.user.role === 'superadmin';
 
-    // Only Super Admin can create Admin or Super Admin accounts
-    const isSuperAdminUser = req.user.role === 'superadmin' || req.user.username === 'admin' || req.user.username === 'superadmin';
-    if ((requestedRole === 'superadmin' || requestedRole === 'admin') && !isSuperAdminUser) {
+    // Constraint 1: Strictly 1 Super Admin allowed in the system. NO ONE can add another Super Admin!
+    if (role === 'superadmin' || trimmedUsername.toLowerCase() === 'superadmin') {
       return res.status(403).json({
-        message: 'Only a Super Administrator can create Administrator or Super Administrator accounts.'
+        message: 'Only 1 Super Administrator is permitted in the system. Additional Super Administrator accounts cannot be created.'
       });
+    }
+
+    // Constraint 2: Admin can ONLY add User accounts (cannot add Admin accounts)
+    let requestedRole = 'user';
+    if (!isSuperAdminCaller) {
+      if (role && role !== 'user') {
+        return res.status(403).json({
+          message: 'Administrators can only create standard User accounts. Administrator accounts can only be created by the Super Administrator.'
+        });
+      }
+      requestedRole = 'user';
+    } else {
+      // Super Admin can create 'admin' or 'user'
+      requestedRole = (role === 'admin') ? 'admin' : 'user';
     }
 
     const db = getDb();
@@ -135,13 +171,15 @@ router.post('/', (req, res) => {
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)').run(trimmedUsername, passwordHash, requestedRole);
+    const result = db.prepare('INSERT INTO users (username, password_hash, role, can_control) VALUES (?, ?, ?, 1)').run(trimmedUsername, passwordHash, requestedRole);
 
     // Log user creation
+    const actorTitle = isSuperAdminCaller ? 'Super Admin' : 'Admin';
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, req.user.username, 'create-user', `Created user "${trimmedUsername}" with role "${requestedRole}"`);
+      .run(req.user.id, req.user.username, 'create-user', `${actorTitle} created user "${trimmedUsername}" with role "${requestedRole}"`);
 
-    const newUser = db.prepare('SELECT id, username, role, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const newUser = db.prepare('SELECT id, username, role, can_control, created_at FROM users WHERE id = ?').get(result.lastInsertRowid);
+    newUser.can_control = newUser.can_control !== 0;
     res.status(201).json(newUser);
   } catch (err) {
     console.error('Create user error:', err);

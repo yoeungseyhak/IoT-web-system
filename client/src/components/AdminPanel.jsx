@@ -119,14 +119,23 @@ export default function AdminPanel() {
     }
   }, [activeBlock, fetchUsers, fetchReports]);
 
-  // Real-time report events
+  // Real-time report & user events
   useEffect(() => {
     const handleReportEvent = () => {
       fetchReports();
     };
+    const handleWsMessage = (e) => {
+      if (e.detail?.type === 'user-control-update') {
+        fetchUsers();
+      }
+    };
     window.addEventListener('report-event', handleReportEvent);
-    return () => window.removeEventListener('report-event', handleReportEvent);
-  }, [fetchReports]);
+    window.addEventListener('ws-message', handleWsMessage);
+    return () => {
+      window.removeEventListener('report-event', handleReportEvent);
+      window.removeEventListener('ws-message', handleWsMessage);
+    };
+  }, [fetchReports, fetchUsers]);
 
   // Handle User Search Input with Debounce
   const handleUsersSearchChange = (val) => {
@@ -204,7 +213,7 @@ export default function AdminPanel() {
 
   // Filter users by client-side can_control if requested
   const displayedUsers = users.filter(u => {
-    const hasControl = (u.role === 'admin' || u.role === 'superadmin') ? true : (u.can_control !== false);
+    const hasControl = (u.role === 'superadmin') ? true : (u.can_control !== false);
     if (usersControlFilter === 'enabled') return hasControl;
     if (usersControlFilter === 'readonly') return !hasControl;
     return true;
@@ -443,15 +452,15 @@ export default function AdminPanel() {
                           {/* Action Buttons */}
                           <div className="col-span-4 flex items-center gap-2 md:justify-end flex-wrap">
                             {/* Control Permission Toggle */}
-                            {isTargetAdmin ? (
+                            {isSuperAdminAccount ? (
                               <span
                                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/25 cursor-default select-none"
-                                title="Administrator accounts always retain full device control"
+                                title="Super Administrator account permanently retains full device control"
                               >
                                 <Shield className="w-3.5 h-3.5" />
                                 <span>Full Control</span>
                               </span>
-                            ) : (
+                            ) : (isCurrentUserSuperAdmin || u.role === 'user') ? (
                               <button
                                 onClick={async () => {
                                   try {
@@ -470,6 +479,18 @@ export default function AdminPanel() {
                                 {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
                                 <span>{u.can_control !== false ? 'Control' : 'Read-Only'}</span>
                               </button>
+                            ) : (
+                              <span
+                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border cursor-not-allowed select-none ${
+                                  u.can_control !== false
+                                    ? 'bg-slate-700/40 text-emerald-400/70 border-slate-600/40'
+                                    : 'bg-slate-700/40 text-amber-400/70 border-slate-600/40'
+                                }`}
+                                title="Only Super Administrator can modify Administrator control permissions"
+                              >
+                                {u.can_control !== false ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                                <span>{u.can_control !== false ? 'Control' : 'Read-Only'}</span>
+                              </span>
                             )}
 
                             {/* Change Password */}
@@ -863,16 +884,23 @@ function AddUserForm({ currentUserRole, currentUsername, onSubmit, onCancel }) {
       </div>
       <div>
         <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">Access Role</label>
-        <select value={role} onChange={e => setRole(e.target.value)}
-          className="w-full bg-slate-900/60 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition-all cursor-pointer">
-          <option value="user">Standard User (Operator)</option>
-          {isSuperAdmin && (
-            <>
-              <option value="admin">Administrator (Devices & Parking)</option>
-              <option value="superadmin">Super Administrator (Full Ownership)</option>
-            </>
-          )}
-        </select>
+        {isSuperAdmin ? (
+          <select value={role} onChange={e => setRole(e.target.value)}
+            className="w-full bg-slate-900/60 border border-slate-700 text-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500 transition-all cursor-pointer">
+            <option value="user">Standard User (Operator)</option>
+            <option value="admin">Administrator (Devices & Parking)</option>
+          </select>
+        ) : (
+          <div className="w-full bg-slate-900/40 border border-slate-700/60 text-slate-300 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <User className="w-4 h-4 text-cyan-400" />
+              <span>Standard User (Operator)</span>
+            </span>
+            <span className="text-[11px] text-amber-400 font-medium bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+              Admin restricted to User accounts
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex gap-3 justify-end pt-3 border-t border-slate-700/50">
