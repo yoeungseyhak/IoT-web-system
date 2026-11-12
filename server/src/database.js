@@ -9,12 +9,17 @@ function initDatabase() {
     const dbPath = path.join(__dirname, '../database.sqlite');
     db = new Database(dbPath);
 
+    // Enable WAL mode and normal synchronous for high-concurrency real-time WebSocket traffic
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+
     db.exec(`
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             role TEXT DEFAULT 'user' CHECK(role IN ('superadmin','admin','user')),
+            can_control INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -23,7 +28,9 @@ function initDatabase() {
             name TEXT NOT NULL,
             type TEXT NOT NULL,
             pin TEXT DEFAULT '',
+            controller_id TEXT DEFAULT '',
             state TEXT NOT NULL DEFAULT '{}',
+            disabled INTEGER DEFAULT 0,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -64,6 +71,7 @@ function initDatabase() {
             sensor_pin TEXT DEFAULT '',
             sensor_type TEXT DEFAULT 'ultrasonic',
             occupied INTEGER DEFAULT 0,
+            controller_id TEXT DEFAULT '',
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -72,6 +80,22 @@ function initDatabase() {
             value TEXT NOT NULL,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
+
+        CREATE TABLE IF NOT EXISTS controllers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            ip_address TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Performance Indexes for real-time telemetry and search queries
+        CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_logs_device_id ON logs(device_id);
+        CREATE INDEX IF NOT EXISTS idx_devices_controller_id ON devices(controller_id);
+        CREATE INDEX IF NOT EXISTS idx_slots_controller_id ON parking_slots(controller_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_user_id ON reports(user_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at DESC);
     `);
 
     // Migration for existing database: add pin column if missing
@@ -81,11 +105,50 @@ function initDatabase() {
         // column already exists
     }
 
+    // Migration for existing database: add controller_id column to devices if missing
+    try {
+        db.exec("ALTER TABLE devices ADD COLUMN controller_id TEXT DEFAULT ''");
+    } catch (e) {
+        // column already exists
+    }
+
+    // Migration for existing database: add controller_id column to parking_slots if missing
+    try {
+        db.exec("ALTER TABLE parking_slots ADD COLUMN controller_id TEXT DEFAULT ''");
+    } catch (e) {
+        // column already exists
+    }
+
     // Migration for existing database: add can_control column if missing
     try {
         db.exec("ALTER TABLE users ADD COLUMN can_control INTEGER DEFAULT 1");
     } catch (e) {
         // column already exists
+    }
+
+    // Migration for existing database: add disabled column to devices if missing
+    try {
+        db.exec("ALTER TABLE devices ADD COLUMN disabled INTEGER DEFAULT 0");
+    } catch (e) {
+        // column already exists
+    }
+
+    // Seed default controllers if none exist
+    try {
+        const controllerCount = db.prepare('SELECT COUNT(*) as count FROM controllers').get().count;
+        if (controllerCount === 0) {
+            const insertController = db.prepare('INSERT INTO controllers (id, name, description) VALUES (?, ?, ?)');
+            insertController.run('esp32-1', 'ESP32 Controller 1 (Primary)', 'Primary controller for main building lights, boom gate, and sensor relays');
+            insertController.run('esp32-2', 'ESP32 Controller 2 (Secondary)', 'Secondary controller for additional building lights or parking bays');
+        }
+        // Clean up legacy Zone tags from controllers
+        db.prepare("UPDATE controllers SET name = 'ESP32 Controller 1 (Primary)' WHERE id = 'esp32-1' AND name LIKE '%Zone%'").run();
+        db.prepare("UPDATE controllers SET name = 'ESP32 Controller 2 (Secondary)' WHERE id = 'esp32-2' AND name LIKE '%Zone%'").run();
+
+        // Associate default devices with esp32-1 if not assigned
+        db.prepare("UPDATE devices SET controller_id = 'esp32-1' WHERE controller_id IS NULL OR controller_id = ''").run();
+    } catch (e) {
+        console.error('Error seeding controllers:', e);
     }
 
     // Migration for existing database: ensure role column CHECK constraint allows 'superadmin'
@@ -134,25 +197,46 @@ function initDatabase() {
     const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
     if (userCount === 0) {
         const insertUser = db.prepare('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)');
-        insertUser.run('admin', bcrypt.hashSync('Admin@12345', 10), 'superadmin');
-        insertUser.run('user1', bcrypt.hashSync('User@12345', 10), 'user');
-
-        const insertDevice = db.prepare('INSERT INTO devices (id, name, type, pin, state) VALUES (?, ?, ?, ?, ?)');
-        insertDevice.run('light-1', 'Light 1', 'light', 'GPIO 2', '{"on":false}');
-        insertDevice.run('light-2', 'Light 2', 'light', 'GPIO 4', '{"on":false}');
-        insertDevice.run('light-3', 'Light 3', 'light', 'GPIO 5', '{"on":false}');
-        insertDevice.run('rolling-door', 'Rolling Door', 'rolling-door', 'GPIO 18, 19', '{"status":"closed"}');
-        insertDevice.run('boom-gate', 'Boom Gate', 'boom-gate', 'GPIO 27', '{"status":"closed"}');
-        insertDevice.run('party-light', 'Party Light', 'party-light', 'GPIO 23', '{"on":false,"brightness":100,"color":"#ff00ff","mode":"static"}');
+        insertUser.run('yoeungseyhak', bcrypt.hashSync('Admin@12345', 10), 'superadmin');
     }
 
-    // Ensure existing default devices have default pins if empty
-    db.prepare("UPDATE devices SET pin = 'GPIO 2' WHERE id = 'light-1' AND (pin IS NULL OR pin = '')").run();
-    db.prepare("UPDATE devices SET pin = 'GPIO 4' WHERE id = 'light-2' AND (pin IS NULL OR pin = '')").run();
-    db.prepare("UPDATE devices SET pin = 'GPIO 5' WHERE id = 'light-3' AND (pin IS NULL OR pin = '')").run();
-    db.prepare("UPDATE devices SET pin = 'GPIO 18, 19' WHERE id = 'rolling-door' AND (pin IS NULL OR pin = '')").run();
-    db.prepare("UPDATE devices SET pin = 'GPIO 27' WHERE id = 'boom-gate' AND (pin IS NULL OR pin = '' OR pin = 'GPIO 21, 22')").run();
-    db.prepare("UPDATE devices SET pin = 'GPIO 23' WHERE id = 'party-light' AND (pin IS NULL OR pin = '')").run();
+    // Seed default devices if missing
+    try {
+        const defaultDevices = [
+            { id: 'light-1', name: 'Light 1', type: 'light', pin: 'GPIO 4', state: '{"on":false}', controller: 'esp32-1' },
+            { id: 'light-2', name: 'Light 2', type: 'light', pin: 'GPIO 5', state: '{"on":false}', controller: 'esp32-1' },
+            { id: 'light-3', name: 'Light 3', type: 'light', pin: 'GPIO 18', state: '{"on":false}', controller: 'esp32-1' },
+            { id: 'party-light', name: 'Party Light', type: 'party-light', pin: 'GPIO 2', state: '{"on":false,"brightness":100,"color":"#ff00ff","mode":"static"}', controller: 'esp32-1' },
+            { id: 'boom-gate', name: 'Boom Gate', type: 'boom-gate', pin: 'GPIO 27', state: '{"status":"closed"}', controller: 'esp32-1' },
+            { id: 'relay-14', name: 'Aux Relay 14', type: 'light', pin: 'GPIO 14', state: '{"on":false}', controller: 'esp32-1' },
+            { id: 'relay-ldr', name: 'LDR Night Relay', type: 'light', pin: 'GPIO 23', state: '{"on":false}', controller: 'esp32-1' },
+            { id: 'relay-sound', name: 'Sound Sensor Relay', type: 'light', pin: 'GPIO 15', state: '{"on":false}', controller: 'esp32-1' }
+        ];
+
+        const insertDevStmt = db.prepare('INSERT OR IGNORE INTO devices (id, name, type, pin, state, controller_id) VALUES (?, ?, ?, ?, ?, ?)');
+        const updatePinStmt = db.prepare('UPDATE devices SET pin = ?, controller_id = ? WHERE id = ?');
+
+        defaultDevices.forEach(d => {
+            const exists = db.prepare('SELECT id, pin, controller_id FROM devices WHERE id = ?').get(d.id);
+            if (!exists) {
+                insertDevStmt.run(d.id, d.name, d.type, d.pin, d.state, d.controller);
+            } else {
+                if (!exists.controller_id || !exists.pin) {
+                    updatePinStmt.run(d.pin, d.controller, d.id);
+                }
+            }
+        });
+
+        // Clean up legacy Zone tags from devices
+        db.prepare("UPDATE devices SET name = 'Light 1' WHERE id = 'light-1' AND name LIKE '%Zone%'").run();
+        db.prepare("UPDATE devices SET name = 'Light 2' WHERE id = 'light-2' AND name LIKE '%Zone%'").run();
+        db.prepare("UPDATE devices SET name = 'Light 3' WHERE id = 'light-3' AND name LIKE '%Zone%'").run();
+
+        // Associate unassigned default parking slots with esp32-1
+        db.prepare("UPDATE parking_slots SET controller_id = 'esp32-1' WHERE controller_id IS NULL OR controller_id = ''").run();
+    } catch (e) {
+        console.error('Error seeding default devices:', e);
+    }
 
     // Seed system_settings if empty
     const emergencyMode = db.prepare("SELECT value FROM system_settings WHERE key = 'emergency_mode'").get();
@@ -168,6 +252,13 @@ function initDatabase() {
         insertSlot.run('slot-2', 'Slot A2', 'GPIO 33', 'switch', 0);
         insertSlot.run('slot-3', 'Slot A3', 'GPIO 25', 'switch', 0);
         insertSlot.run('slot-4', 'Slot A4', 'GPIO 26', 'switch', 0);
+        insertSlot.run('slot-5', 'Slot A5', 'GPIO 13', 'switch', 0);
+    }
+
+    // Ensure slot-5 exists
+    const hasSlot5 = db.prepare("SELECT COUNT(*) as count FROM parking_slots WHERE id = 'slot-5'").get().count;
+    if (hasSlot5 === 0) {
+        db.prepare('INSERT INTO parking_slots (id, name, sensor_pin, sensor_type, occupied) VALUES (?, ?, ?, ?, ?)').run('slot-5', 'Slot A5', 'GPIO 13', 'switch', 0);
     }
 
     // Migration: update legacy default slots to match mechanical switch GPIO assignments

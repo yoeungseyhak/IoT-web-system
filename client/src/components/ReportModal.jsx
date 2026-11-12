@@ -16,8 +16,9 @@ export default function ReportModal({ isOpen, onClose }) {
   const fetchMyReports = async () => {
     setReportsLoading(true);
     try {
-      const data = await getReports();
-      setMyReports(data || []);
+      const data = await getReports({ mine: true });
+      const list = Array.isArray(data) ? data : (data?.reports || []);
+      setMyReports(list);
     } catch (err) {
       console.error('Failed to load my reports', err);
     } finally {

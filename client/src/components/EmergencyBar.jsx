@@ -159,28 +159,28 @@ export default function EmergencyBar({ emergencyState, onEmergencyChange }) {
   if (user?.role === 'admin' || user?.role === 'superadmin') {
     return (
       <>
-        <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/50 rounded-2xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 flex items-center justify-center">
               <ShieldAlert className="w-4 h-4" />
             </div>
             <div>
-              <span className="text-xs font-semibold text-slate-200">Emergency Protocols</span>
-              <p className="text-[11px] text-slate-400">Immediate facility evacuation or perimeter lockdown controls</p>
+              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Emergency Protocols</span>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Immediate facility evacuation or perimeter lockdown controls</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               onClick={() => setShowConfirm('evacuate')}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-xl text-xs font-semibold transition-all hover:scale-[1.02]"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 dark:bg-red-500/10 dark:hover:bg-red-500/20 dark:text-red-400 dark:border-red-500/30 rounded-xl text-xs font-semibold transition-all hover:scale-[1.02]"
             >
               <Siren className="w-3.5 h-3.5" />
               Evacuation Protocol
             </button>
             <button
               onClick={() => setShowConfirm('lockdown')}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-semibold transition-all hover:scale-[1.02]"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 dark:bg-amber-500/10 dark:hover:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30 rounded-xl text-xs font-semibold transition-all hover:scale-[1.02]"
             >
               <Lock className="w-3.5 h-3.5" />
               Perimeter Lockdown

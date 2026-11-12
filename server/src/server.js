@@ -12,6 +12,7 @@ const devicesRoutes = require('./routes/devices');
 const reportsRoutes = require('./routes/reports');
 const { router: emergencyRoutes, initEmergencyState } = require('./routes/emergency');
 const { router: parkingRoutes } = require('./routes/parking');
+const controllersRoutes = require('./routes/controllers');
 const { setupWebSocket } = require('./websocket');
 const { initAutomations } = require('./automation');
 
@@ -25,12 +26,13 @@ app.use('/api/devices', devicesRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/emergency', emergencyRoutes);
 app.use('/api/parking', parkingRoutes);
+app.use('/api/controllers', controllersRoutes);
 
 // Logs route: supports pagination, search, action filtering for large volumes of data
 const { authenticateToken } = require('./middleware/auth');
 const { getDb: getDatabase } = require('./database');
 
-function queryLogs(db, queryParams) {
+function queryLogs(db, queryParams, user) {
     const page = parseInt(queryParams.page, 10);
     const limit = parseInt(queryParams.limit, 10) || 50;
     const search = queryParams.search ? String(queryParams.search).trim() : '';
@@ -39,15 +41,35 @@ function queryLogs(db, queryParams) {
     let whereClause = ' WHERE 1=1';
     const params = [];
 
+    // Role-based security filter: standard operators cannot view user & system administration audit logs
+    const isAdmin = user && (user.role === 'admin' || user.role === 'superadmin');
+    if (!isAdmin) {
+        whereClause += " AND action NOT IN ('create-user', 'delete-user', 'update-role', 'update-control', 'change-password', 'reset-password', 'create-controller', 'update-controller', 'delete-controller')";
+    }
+
     if (search) {
-        whereClause += ' AND (username LIKE ? OR action LIKE ? OR device_name LIKE ? OR details LIKE ?)';
+        whereClause += ' AND (COALESCE(username, \'\') LIKE ? OR COALESCE(action, \'\') LIKE ? OR COALESCE(device_name, \'\') LIKE ? OR COALESCE(details, \'\') LIKE ?)';
         const s = `%${search}%`;
         params.push(s, s, s, s);
     }
 
     if (action && action !== 'all') {
-        whereClause += ' AND action = ?';
-        params.push(action);
+        if (action === 'emergency') {
+            whereClause += ' AND action LIKE \'emergency%\'';
+        } else if (action === 'parking' || action === 'slot') {
+            whereClause += ' AND (action LIKE \'%slot%\' OR action LIKE \'%parking%\')';
+        } else if (action === 'automation') {
+            whereClause += ' AND (action LIKE \'%schedule%\' OR action LIKE \'%countdown%\' OR action LIKE \'%cycle%\' OR action LIKE \'%automation%\')';
+        } else if (action === 'user') {
+            if (isAdmin) {
+                whereClause += ' AND (action LIKE \'%user%\' OR action LIKE \'%password%\' OR action LIKE \'%control%\' OR action LIKE \'%role%\')';
+            } else {
+                whereClause += ' AND 1=0'; // Standard operators cannot view user administration logs
+            }
+        } else {
+            whereClause += ' AND action = ?';
+            params.push(action);
+        }
     }
 
     const countRow = db.prepare(`SELECT COUNT(*) as count FROM logs${whereClause}`).get(...params);
@@ -79,7 +101,7 @@ function queryLogs(db, queryParams) {
 app.get('/api/logs', authenticateToken, (req, res) => {
     try {
         const db = getDatabase();
-        const result = queryLogs(db, req.query);
+        const result = queryLogs(db, req.query, req.user);
         res.json(result);
     } catch (err) {
         console.error('Logs query error:', err);

@@ -49,7 +49,8 @@ router.get('/', (req, res) => {
     let whereClause = ' WHERE 1=1';
     const params = [];
     
-    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+    const isMine = req.query.mine === 'true' || req.query.mine === '1';
+    if ((req.user.role !== 'admin' && req.user.role !== 'superadmin') || isMine) {
       whereClause += ' AND user_id = ?';
       params.push(req.user.id);
     }
@@ -73,6 +74,19 @@ router.get('/', (req, res) => {
     const countRow = db.prepare(`SELECT COUNT(*) as count FROM reports${whereClause}`).get(...params);
     const total = countRow ? countRow.count : 0;
 
+    // Calculate total pending tickets for notification pills
+    let pendingCount = 0;
+    try {
+      let pendingSql = "SELECT COUNT(*) as count FROM reports WHERE status = 'pending'";
+      const pendingParams = [];
+      if (isMine || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
+        pendingSql += " AND user_id = ?";
+        pendingParams.push(req.user.id);
+      }
+      const pRow = db.prepare(pendingSql).get(...pendingParams);
+      pendingCount = pRow ? pRow.count : 0;
+    } catch (e) {}
+
     let sql = `SELECT * FROM reports${whereClause} ORDER BY created_at DESC, id DESC`;
 
     if (!isNaN(page) && page > 0) {
@@ -84,6 +98,7 @@ router.get('/', (req, res) => {
       return res.json({
         reports,
         total,
+        pendingCount,
         page,
         limit: safeLimit,
         totalPages: Math.ceil(total / safeLimit) || 1

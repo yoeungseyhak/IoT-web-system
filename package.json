@@ -1,7 +1,7 @@
 {
   "name": "floor-management",
   "version": "1.0.0",
-  "description": "Floor Management Smart Building IoT System",
+  "description": "Floor Management System",
   "scripts": {
     "install:all": "cd server && npm install && cd ../client && npm install",
     "build": "cd client && npm run build",

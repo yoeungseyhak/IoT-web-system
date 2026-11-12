@@ -25,6 +25,7 @@ export default function App() {
   const [ws, setWs] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [deviceOnline, setDeviceOnline] = useState(false);
+  const [controllers, setControllers] = useState([]);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const backoffRef = useRef(1000);
@@ -106,8 +107,26 @@ export default function App() {
         const data = JSON.parse(event.data);
         if (data.type === 'device-status' || data.type === 'esp32-status') {
           setDeviceOnline(Boolean(data.online));
-        } else if (data.type === 'init-state' && data.deviceStatus) {
-          setDeviceOnline(Boolean(data.deviceStatus.online));
+          if (Array.isArray(data.controllers)) {
+            setControllers(data.controllers);
+          }
+        } else if (data.type === 'controllers-status') {
+          if (Array.isArray(data.controllers)) {
+            setControllers(data.controllers);
+          }
+          if (typeof data.online === 'boolean') {
+            setDeviceOnline(data.online);
+          }
+        } else if (data.type === 'init-state') {
+          if (data.deviceStatus) {
+            setDeviceOnline(Boolean(data.deviceStatus.online));
+            if (Array.isArray(data.deviceStatus.controllers)) {
+              setControllers(data.deviceStatus.controllers);
+            }
+          }
+          if (Array.isArray(data.controllers)) {
+            setControllers(data.controllers);
+          }
         } else if (data.type === 'user-control-update') {
           setUser(prev => {
             if (prev && prev.id === data.userId) {
@@ -118,6 +137,15 @@ export default function App() {
                 toast.error('Device control has been revoked by Super Admin (Read-Only Mode)');
               }
               return { ...prev, can_control: updatedControl };
+            }
+            return prev;
+          });
+        } else if (data.type === 'user-role-update') {
+          setUser(prev => {
+            if (prev && prev.id === data.userId) {
+              const roleTitle = data.role === 'admin' ? 'Administrator' : 'Standard User';
+              toast(`Your account role was changed to ${roleTitle}`, { icon: '🛡️' });
+              return { ...prev, role: data.role };
             }
             return prev;
           });
@@ -133,6 +161,7 @@ export default function App() {
       console.log("WS disconnected");
       setIsConnected(false);
       setDeviceOnline(false);
+      setControllers(prev => prev.map(c => ({ ...c, online: false })));
       
       if (!intentionalClose.current) {
         reconnectTimeoutRef.current = setTimeout(() => {
@@ -179,10 +208,22 @@ export default function App() {
     }
   }, []);
 
+  const onlineControllersCount = controllers.filter(c => c.online).length;
+  const totalControllersCount = controllers.length;
+
   return (
     <ThemeProvider>
       <AuthContext.Provider value={{ user, token, login, logout, updateUser, loading }}>
-        <WebSocketContext.Provider value={{ ws, isConnected, deviceOnline, esp32Online: deviceOnline, sendMessage }}>
+        <WebSocketContext.Provider value={{
+          ws,
+          isConnected,
+          deviceOnline,
+          esp32Online: deviceOnline,
+          controllers,
+          onlineControllersCount,
+          totalControllersCount,
+          sendMessage
+        }}>
           <BrowserRouter>
             <Toaster position="top-right" toastOptions={{
               style: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }

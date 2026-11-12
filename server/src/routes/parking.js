@@ -22,7 +22,12 @@ function computeStats(slots) {
 router.get('/slots', (req, res) => {
   try {
     const db = getDb();
-    const slots = db.prepare('SELECT * FROM parking_slots ORDER BY id ASC').all();
+    const slots = db.prepare(`
+      SELECT p.*, c.name as controller_name 
+      FROM parking_slots p 
+      LEFT JOIN controllers c ON p.controller_id = c.id 
+      ORDER BY p.id ASC
+    `).all();
     const parsedSlots = slots.map(s => ({ ...s, occupied: s.occupied === 1 }));
     const stats = computeStats(parsedSlots);
     res.json({ slots: parsedSlots, stats });
@@ -35,7 +40,7 @@ router.get('/slots', (req, res) => {
 // POST /api/parking/slots - Add a new parking slot (Admin only)
 router.post('/slots', requireAdmin, (req, res) => {
   try {
-    const { name, sensor_pin, sensor_type } = req.body;
+    const { name, sensor_pin, sensor_type, controller_id } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ message: 'Slot name is required' });
     }
@@ -45,18 +50,24 @@ router.post('/slots', requireAdmin, (req, res) => {
     // Generate clean slot ID
     const count = db.prepare('SELECT COUNT(*) as count FROM parking_slots').get().count;
     const generatedId = `slot-${Date.now().toString(36)}-${count + 1}`;
+    const controllerVal = controller_id ? controller_id.trim() : '';
 
     db.prepare(`
-      INSERT INTO parking_slots (id, name, sensor_pin, sensor_type, occupied)
-      VALUES (?, ?, ?, ?, 0)
-    `).run(generatedId, name.trim(), sensor_pin || '', sensor_type || 'ultrasonic');
+      INSERT INTO parking_slots (id, name, sensor_pin, sensor_type, controller_id, occupied)
+      VALUES (?, ?, ?, ?, ?, 0)
+    `).run(generatedId, name.trim(), sensor_pin || '', sensor_type || 'ultrasonic', controllerVal);
 
-    const newSlot = db.prepare('SELECT * FROM parking_slots WHERE id = ?').get(generatedId);
+    const newSlot = db.prepare(`
+      SELECT p.*, c.name as controller_name 
+      FROM parking_slots p 
+      LEFT JOIN controllers c ON p.controller_id = c.id 
+      WHERE p.id = ?
+    `).get(generatedId);
     newSlot.occupied = newSlot.occupied === 1;
 
     // Log action
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, req.user.username, 'create-slot', `Admin created parking slot "${name}" (${generatedId})`);
+      .run(req.user.id, req.user.username, 'create-slot', `Admin created parking slot "${name}" (${generatedId}) on controller "${controllerVal || 'all'}"`);
 
     const allSlots = db.prepare('SELECT * FROM parking_slots').all();
     const stats = computeStats(allSlots);
@@ -73,6 +84,60 @@ router.post('/slots', requireAdmin, (req, res) => {
     res.status(201).json({ slot: newSlot, stats });
   } catch (err) {
     console.error('Create parking slot error:', err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// PUT /api/parking/slots/:id - Update parking slot details (Admin only)
+router.put('/slots/:id', requireAdmin, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, sensor_pin, sensor_type, controller_id } = req.body;
+
+    const db = getDb();
+    const existing = db.prepare('SELECT * FROM parking_slots WHERE id = ?').get(id);
+    if (!existing) {
+      return res.status(404).json({ message: 'Parking slot not found' });
+    }
+
+    const updatedName = (name !== undefined && name.trim()) ? name.trim() : existing.name;
+    const updatedPin = sensor_pin !== undefined ? sensor_pin.trim() : existing.sensor_pin;
+    const updatedType = sensor_type !== undefined ? sensor_type.trim() : existing.sensor_type;
+    const updatedController = controller_id !== undefined ? controller_id.trim() : existing.controller_id;
+
+    db.prepare(`
+      UPDATE parking_slots 
+      SET name = ?, sensor_pin = ?, sensor_type = ?, controller_id = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(updatedName, updatedPin, updatedType, updatedController, id);
+
+    const updatedSlot = db.prepare(`
+      SELECT p.*, c.name as controller_name 
+      FROM parking_slots p 
+      LEFT JOIN controllers c ON p.controller_id = c.id 
+      WHERE p.id = ?
+    `).get(id);
+    updatedSlot.occupied = updatedSlot.occupied === 1;
+
+    // Log action
+    db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, req.user.username, 'update-slot', `Admin updated parking slot "${updatedName}" (${id})`);
+
+    const allSlots = db.prepare('SELECT * FROM parking_slots').all();
+    const stats = computeStats(allSlots);
+
+    // Broadcast update to all clients
+    broadcastToAll({
+      type: 'slots-changed',
+      action: 'update',
+      slot: updatedSlot,
+      stats,
+      timestamp: Date.now()
+    });
+
+    res.json({ slot: updatedSlot, stats });
+  } catch (err) {
+    console.error('Update parking slot error:', err);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
@@ -146,6 +211,8 @@ router.put('/slots/:id/status', (req, res) => {
       slotId: id,
       occupied: updatedSlot.occupied,
       stats,
+      controllerId: updatedSlot.controller_id || '',
+      triggeredBy: req.user.username,
       timestamp: Date.now()
     });
 

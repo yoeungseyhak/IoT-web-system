@@ -61,30 +61,25 @@ router.post('/evacuate', (req, res) => {
     // Update settings in database
     db.prepare("UPDATE system_settings SET value = 'evacuate', updated_at = CURRENT_TIMESTAMP WHERE key = 'emergency_mode'").run();
 
-    // 1. Force Rolling Door OPEN
-    db.prepare("UPDATE devices SET state = '{\"status\":\"opened\"}', updated_at = CURRENT_TIMESTAMP WHERE id = 'rolling-door'").run();
-    broadcastDeviceUpdate('rolling-door', { status: 'opened' }, 'EMERGENCY_EVACUATE');
-
-    // 2. Force Boom Gate OPEN
-    db.prepare("UPDATE devices SET state = '{\"status\":\"opened\"}', updated_at = CURRENT_TIMESTAMP WHERE id = 'boom-gate'").run();
-    broadcastDeviceUpdate('boom-gate', { status: 'opened' }, 'EMERGENCY_EVACUATE');
-
-    // 3. Turn all lights ON for safe evacuation
-    const lights = ['light-1', 'light-2', 'light-3'];
-    lights.forEach(lightId => {
-      db.prepare("UPDATE devices SET state = '{\"on\":true}', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(lightId);
-      broadcastDeviceUpdate(lightId, { on: true }, 'EMERGENCY_EVACUATE');
+    // 1. Force all gates and perimeter doors OPEN across all controllers
+    const gateDevices = db.prepare("SELECT id FROM devices WHERE type = 'boom-gate' OR type = 'rolling-door'").all();
+    gateDevices.forEach(g => {
+      db.prepare("UPDATE devices SET state = '{\"status\":\"opened\"}', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(g.id);
+      broadcastDeviceUpdate(g.id, { status: 'opened' }, 'EMERGENCY_EVACUATE');
     });
 
-    // 4. Set Party Light to alert mode (solid white / maximum brightness)
-    db.prepare("UPDATE devices SET state = '{\"on\":true,\"brightness\":100,\"color\":\"#ff0000\",\"mode\":\"flash\"}', updated_at = CURRENT_TIMESTAMP WHERE id = 'party-light'").run();
-    broadcastDeviceUpdate('party-light', { on: true, brightness: 100, color: '#ff0000', mode: 'flash' }, 'EMERGENCY_EVACUATE');
+    // 2. Turn all lights ON across all controllers for safe evacuation
+    const allLights = db.prepare("SELECT id FROM devices WHERE type = 'light' OR type = 'party-light'").all();
+    allLights.forEach(l => {
+      db.prepare("UPDATE devices SET state = '{\"on\":true}', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(l.id);
+      broadcastDeviceUpdate(l.id, { on: true }, 'EMERGENCY_EVACUATE');
+    });
 
-    // 5. Log action
+    // 3. Log action
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
       .run(req.user.id, req.user.username, 'emergency-evacuate', `🚨 Emergency Evacuation triggered by ${req.user.username}. Exits opened and lights enabled.`);
 
-    // 6. Broadcast emergency alert to all clients and ESP32
+    // 4. Broadcast emergency alert to all clients and ESP32
     broadcastToAll({
       type: 'emergency-alert',
       mode: 'evacuate',
@@ -119,13 +114,12 @@ router.post('/lockdown', requireAdmin, (req, res) => {
 
     db.prepare("UPDATE system_settings SET value = 'lockdown', updated_at = CURRENT_TIMESTAMP WHERE key = 'emergency_mode'").run();
 
-    // 1. Force Rolling Door CLOSED
-    db.prepare("UPDATE devices SET state = '{\"status\":\"closed\"}', updated_at = CURRENT_TIMESTAMP WHERE id = 'rolling-door'").run();
-    broadcastDeviceUpdate('rolling-door', { status: 'closed' }, 'EMERGENCY_LOCKDOWN');
-
-    // 2. Force Boom Gate CLOSED
-    db.prepare("UPDATE devices SET state = '{\"status\":\"closed\"}', updated_at = CURRENT_TIMESTAMP WHERE id = 'boom-gate'").run();
-    broadcastDeviceUpdate('boom-gate', { status: 'closed' }, 'EMERGENCY_LOCKDOWN');
+    // 1. Force all gates and perimeter doors CLOSED across all controllers
+    const lockGates = db.prepare("SELECT id FROM devices WHERE type = 'boom-gate' OR type = 'rolling-door'").all();
+    lockGates.forEach(g => {
+      db.prepare("UPDATE devices SET state = '{\"status\":\"closed\"}', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(g.id);
+      broadcastDeviceUpdate(g.id, { status: 'closed' }, 'EMERGENCY_LOCKDOWN');
+    });
 
     // 3. Log action
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
@@ -161,6 +155,13 @@ router.post('/clear', requireAdmin, (req, res) => {
     };
 
     db.prepare("UPDATE system_settings SET value = 'normal', updated_at = CURRENT_TIMESTAMP WHERE key = 'emergency_mode'").run();
+
+    // Reset party lights back off
+    const partyLights = db.prepare("SELECT id FROM devices WHERE type = 'party-light'").all();
+    partyLights.forEach(p => {
+      db.prepare("UPDATE devices SET state = '{\"on\":false}', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(p.id);
+      broadcastDeviceUpdate(p.id, { on: false }, 'EMERGENCY_CLEAR');
+    });
 
     // Log action
     db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')

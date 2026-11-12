@@ -1,12 +1,15 @@
-import { useState } from "react";
-import { X, Car, Plus, Loader2, Cpu, Radio, KeyRound } from "lucide-react";
+import { useState, useContext } from "react";
+import { X, Car, Plus, Loader2, Cpu, Radio, KeyRound, Server } from "lucide-react";
 import { createParkingSlot } from "../api";
+import { WebSocketContext } from "../App";
 import toast from "react-hot-toast";
 
 export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
+  const { controllers = [] } = useContext(WebSocketContext) || {};
   const [name, setName] = useState("");
   const [sensorType, setSensorType] = useState("switch");
-  const [sensorPin, setSensorPin] = useState("GPIO 32");
+  const [sensorPin, setSensorPin] = useState("32");
+  const [controllerId, setControllerId] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -24,9 +27,11 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
         name: name.trim(),
         sensor_type: sensorType,
         sensor_pin: sensorPin.trim(),
+        controller_id: controllerId
       });
       toast.success(`Parking slot "${name}" created successfully!`);
       setName("");
+      setControllerId("");
       onSlotAdded?.(res.slot, res.stats);
       onClose();
     } catch (err) {
@@ -91,7 +96,7 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => { setSensorType('switch'); setSensorPin('GPIO 32'); }}
+                onClick={() => { setSensorType('switch'); setSensorPin('32'); }}
                 className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
                   sensorType === 'switch' || sensorType === 'mechanical'
                     ? 'border-amber-500 bg-amber-500/10 text-amber-600 dark:text-amber-400'
@@ -107,7 +112,7 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
 
               <button
                 type="button"
-                onClick={() => { setSensorType('ultrasonic'); setSensorPin('GPIO 32, 33'); }}
+                onClick={() => { setSensorType('ultrasonic'); setSensorPin('32, 33'); }}
                 className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
                   sensorType === 'ultrasonic'
                     ? 'border-cyan-500 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
@@ -123,7 +128,7 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
 
               <button
                 type="button"
-                onClick={() => { setSensorType('ir'); setSensorPin('GPIO 34'); }}
+                onClick={() => { setSensorType('ir'); setSensorPin('34'); }}
                 className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
                   sensorType === 'ir'
                     ? 'border-cyan-500 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
@@ -140,14 +145,36 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
           </div> */}
 
           <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <Server className="w-3.5 h-3.5 text-cyan-500 dark:text-cyan-400" />
+              Assigned ESP32 Controller
+            </label>
+            <select
+              value={controllerId}
+              onChange={(e) => setControllerId(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+            >
+              <option value="">All Controllers (Broadcast)</option>
+              {controllers.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name || c.id} ({c.online ? 'Online' : 'Offline'}{c.ip ? ` - ${c.ip}` : ''})
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Select which ESP32 unit will read telemetry from this parking sensor.
+            </p>
+          </div>
+
+          <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              Hardware ESP32 GPIO Pin(s)
+              Hardware ESP32 Pin(s)
             </label>
             <input
               type="text"
               value={sensorPin}
               onChange={(e) => setSensorPin(e.target.value)}
-              placeholder="e.g. GPIO 32, 33 (Trig, Echo) or GPIO 36"
+              placeholder="e.g. 32 or 32, 33 or 36"
               className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-slate-100 font-mono text-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
             />
             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">

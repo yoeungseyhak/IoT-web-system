@@ -1,12 +1,15 @@
-import { useState } from 'react';
-import { Plus, X, Cpu, Tag, Layers, Loader2 } from 'lucide-react';
+import { useState, useContext } from 'react';
+import { Plus, X, Cpu, Tag, Layers, Loader2, Server } from 'lucide-react';
 import { createDevice } from '../api';
+import { WebSocketContext } from '../App';
 import toast from 'react-hot-toast';
 
 export default function AddComponentModal({ isOpen, onClose, onCreated }) {
+  const { controllers = [] } = useContext(WebSocketContext) || {};
   const [name, setName] = useState('');
   const [type, setType] = useState('light');
   const [pin, setPin] = useState('');
+  const [controllerId, setControllerId] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
@@ -19,9 +22,9 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
   ];
 
   const commonPins = [
-    'GPIO 2', 'GPIO 4', 'GPIO 5', 'GPIO 12', 'GPIO 13', 'GPIO 14',
-    'GPIO 15', 'GPIO 18', 'GPIO 19', 'GPIO 21', 'GPIO 22', 'GPIO 23',
-    'GPIO 25', 'GPIO 26', 'GPIO 27', 'GPIO 32', 'GPIO 33'
+    '2', '4', '5', '12', '13', '14',
+    '15', '18', '19', '21', '22', '23',
+    '25', '26', '27', '32', '33'
   ];
 
   const handleSubmit = async (e) => {
@@ -40,12 +43,14 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
       const newDevice = await createDevice({
         name: name.trim(),
         type,
-        pin: pin.trim()
+        pin: pin.trim(),
+        controller_id: controllerId
       });
       toast.success(`Component "${newDevice.name}" added successfully!`);
       if (onCreated) onCreated(newDevice);
       setName('');
       setPin('');
+      setControllerId('');
       setType('light');
       onClose();
     } catch (err) {
@@ -127,6 +132,29 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
             </div>
           </div>
 
+          {/* Assigned ESP32 Controller */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
+              <Server className="w-3.5 h-3.5 text-cyan-400" />
+              Assigned ESP32 Controller
+            </label>
+            <select
+              value={controllerId}
+              onChange={e => setControllerId(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+            >
+              <option value="">All Controllers (Broadcast)</option>
+              {controllers.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name || c.id} ({c.online ? 'Online' : 'Offline'}{c.ip ? ` - ${c.ip}` : ''})
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Select which ESP32 unit will control this component.
+            </p>
+          </div>
+
           {/* ESP32 Pin */}
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
@@ -137,7 +165,7 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
               type="text"
               value={pin}
               onChange={e => setPin(e.target.value)}
-              placeholder="e.g. GPIO 13, GPIO 25, 26"
+              placeholder="e.g. 13 or 25, 26"
               className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
               required
             />

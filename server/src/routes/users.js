@@ -127,6 +127,71 @@ router.put('/:id/control', (req, res) => {
   }
 });
 
+// PUT /api/users/:id/role - Super Admin change user role
+router.put('/:id/role', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    const isSuperAdminCaller = req.user.role === 'superadmin' || req.user.username === 'admin' || req.user.username === 'superadmin';
+    if (!isSuperAdminCaller) {
+      return res.status(403).json({ message: 'Only a Super Administrator can change user roles.' });
+    }
+
+    if (!role || (role !== 'admin' && role !== 'user')) {
+      return res.status(400).json({ message: 'Invalid role. Only "admin" or "user" roles can be assigned.' });
+    }
+
+    const db = getDb();
+    const user = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Protection: Super Administrator accounts cannot be modified or demoted
+    const isSuperAdminTarget = user.role === 'superadmin' || user.username === 'admin' || user.username === 'superadmin';
+    if (isSuperAdminTarget) {
+      return res.status(400).json({
+        message: 'Super Administrator accounts are permanently protected and cannot have their role modified.'
+      });
+    }
+
+    if (user.role === role) {
+      return res.status(200).json({
+        message: `User "${user.username}" is already assigned the "${role}" role.`,
+        user
+      });
+    }
+
+    db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+
+    // Log the role change in audit logs
+    db.prepare('INSERT INTO logs (user_id, username, action, details) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, req.user.username, 'change-role', `Super Admin changed role of user "${user.username}" from "${user.role}" to "${role}"`);
+
+    const updatedUser = db.prepare('SELECT id, username, role, can_control, created_at FROM users WHERE id = ?').get(id);
+    updatedUser.can_control = (updatedUser.role === 'superadmin') ? true : (updatedUser.can_control !== 0);
+
+    // Real-time broadcast to all connected WebSocket clients
+    try {
+      const { broadcastToAll } = require('../websocket');
+      broadcastToAll({
+        type: 'user-role-update',
+        userId: updatedUser.id,
+        username: updatedUser.username,
+        role: updatedUser.role
+      });
+    } catch (wsErr) {
+      console.error('Failed to broadcast user-role-update:', wsErr);
+    }
+
+    res.json(updatedUser);
+  } catch (err) {
+    console.error('Change user role error:', err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
 // POST /api/users - Create new user
 router.post('/', (req, res) => {
   try {

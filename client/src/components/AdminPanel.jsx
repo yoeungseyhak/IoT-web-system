@@ -2,19 +2,21 @@ import { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { 
   Users, UserPlus, Trash2, KeyRound, Shield, User, X, Loader2, 
   ToggleLeft, ToggleRight, FileWarning, CheckCircle2, Search, Filter, 
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, RefreshCw, AlertCircle, Crown
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertCircle, Crown, Server
 } from 'lucide-react';
-import { AuthContext } from '../App';
+import { AuthContext, WebSocketContext } from '../App';
+import ControllersPanel from './ControllersPanel';
 import { 
-  getUsers, createUser, deleteUser, changeUserPassword, toggleUserControl, 
+  getUsers, createUser, deleteUser, changeUserPassword, toggleUserControl, updateUserRole,
   getReports, updateReportStatus, deleteReport 
 } from '../api';
 import toast from 'react-hot-toast';
 
 export default function AdminPanel() {
   const { user: currentUser } = useContext(AuthContext);
+  const { controllers = [] } = useContext(WebSocketContext) || {};
 
-  // Active Block / Blog: 'users' | 'reports'
+  // Active Block / Blog: 'users' | 'reports' | 'controllers'
   const [activeBlock, setActiveBlock] = useState('users');
 
   // --- Users State ---
@@ -46,6 +48,7 @@ export default function AdminPanel() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(null);
+  const [showRoleModal, setShowRoleModal] = useState(null);
 
   // Search debounce timers
   const usersSearchTimeout = useRef(null);
@@ -95,8 +98,8 @@ export default function AdminPanel() {
         setReportsTotal(data.total || 0);
         setReportsTotalPages(data.totalPages || 1);
         
-        // Count pending reports in current dataset or total
-        const pending = data.reports.filter(r => r.status === 'pending').length;
+        // Count pending reports across facility or current dataset
+        const pending = data.pendingCount !== undefined ? data.pendingCount : data.reports.filter(r => r.status === 'pending').length;
         setPendingCount(pending);
       } else if (Array.isArray(data)) {
         setReports(data);
@@ -111,13 +114,16 @@ export default function AdminPanel() {
     }
   }, [reportsPage, reportsLimit, reportsSearch, reportsStatus, reportsCategory]);
 
+  // Fetch users on mount and whenever user pagination/filters change
   useEffect(() => {
-    if (activeBlock === 'users') {
-      fetchUsers();
-    } else {
-      fetchReports();
-    }
-  }, [activeBlock, fetchUsers, fetchReports]);
+    fetchUsers();
+  }, [fetchUsers]);
+
+  // Fetch reports on mount and whenever report pagination/filters change
+  // This ensures reportsTotal and pendingCount badge counters are populated immediately on load
+  useEffect(() => {
+    fetchReports();
+  }, [fetchReports]);
 
   // Real-time report & user events
   useEffect(() => {
@@ -125,7 +131,7 @@ export default function AdminPanel() {
       fetchReports();
     };
     const handleWsMessage = (e) => {
-      if (e.detail?.type === 'user-control-update') {
+      if (e.detail?.type === 'user-control-update' || e.detail?.type === 'user-role-update') {
         fetchUsers();
       }
     };
@@ -207,6 +213,17 @@ export default function AdminPanel() {
     }
   };
 
+  const handleUpdateRole = async (userId, newRole) => {
+    try {
+      await updateUserRole(userId, newRole);
+      toast.success(`Role updated successfully to ${newRole === 'admin' ? 'Administrator' : 'Standard User'}`);
+      setShowRoleModal(null);
+      fetchUsers();
+    } catch (err) {
+      toast.error(err.message || 'Failed to update user role');
+    }
+  };
+
   const isStaff = currentUser?.role === 'admin' || currentUser?.role === 'superadmin' || currentUser?.username === 'admin' || currentUser?.username === 'superadmin';
   if (!isStaff) return null;
 
@@ -264,6 +281,24 @@ export default function AdminPanel() {
               <span className="w-2.5 h-2.5 bg-amber-400 rounded-full animate-ping absolute -top-1 -right-1" />
             )}
           </button>
+
+          {/* Blog 3: ESP32 Controllers Tab Button */}
+          <button
+            onClick={() => setActiveBlock('controllers')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2.5 px-4 sm:px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              activeBlock === 'controllers'
+                ? 'bg-gradient-to-r from-cyan-600 to-cyan-500 text-white shadow-md shadow-cyan-500/25'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Server className="w-4 h-4" />
+            <span>ESP32 Controllers</span>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+              activeBlock === 'controllers' ? 'bg-white/20 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}>
+              {controllers.length}
+            </span>
+          </button>
         </div>
 
         <div className="text-xs text-slate-400 hidden sm:flex items-center gap-2 pr-3">
@@ -291,14 +326,6 @@ export default function AdminPanel() {
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => fetchUsers()}
-                  disabled={usersLoading}
-                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 text-xs transition-colors"
-                  title="Reload users"
-                >
-                  <RefreshCw className={`w-4 h-4 ${usersLoading ? 'animate-spin text-cyan-400' : ''}`} />
-                </button>
                 <button
                   onClick={() => setShowAddModal(true)}
                   className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs sm:text-sm font-semibold transition-all duration-200 active:scale-95 shadow-lg shadow-cyan-500/20"
@@ -386,10 +413,16 @@ export default function AdminPanel() {
                 </div>
 
                   {displayedUsers.map(u => {
-                    const isTargetAdmin = u.role === 'admin' || u.role === 'superadmin';
-                    const isSuperAdminAccount = u.role === 'superadmin' || u.username === 'admin' || u.username === 'superadmin';
-                    const isCurrentUserSuperAdmin = currentUser?.role === 'superadmin' || currentUser?.username === 'admin' || currentUser?.username === 'superadmin';
-                    const canChangePassword = isCurrentUserSuperAdmin || u.role === 'user' || u.id === currentUser?.id;
+                    const isSuperAdminAccount = u.role === 'superadmin';
+                    const isCurrentUserSuperAdmin = currentUser?.role === 'superadmin';
+                    const canChangePassword = isCurrentUserSuperAdmin
+                      ? true
+                      : (!isSuperAdminAccount && (u.role === 'user' || u.id === currentUser?.id));
+                    const passwordTooltip = !canChangePassword
+                      ? isSuperAdminAccount
+                        ? "Administrators cannot change Super Administrator password (Disabled)"
+                        : "Only Super Admin can change administrator passwords (Disabled)"
+                      : "Change password";
                     const canDelete = u.id !== currentUser?.id &&
                                       !isSuperAdminAccount &&
                                       !(currentUser?.role === 'admin' && u.role === 'admin');
@@ -432,16 +465,33 @@ export default function AdminPanel() {
 
                           {/* Role Badge */}
                           <div className="col-span-2">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                              u.role === 'superadmin'
-                                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                                : u.role === 'admin' 
-                                ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' 
-                                : 'bg-slate-700/50 text-slate-300 border border-slate-600'
-                            }`}>
-                              {u.role === 'superadmin' ? <Crown className="w-3 h-3" /> : u.role === 'admin' ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                              {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role.toUpperCase()}
-                            </span>
+                            {isCurrentUserSuperAdmin && !isSuperAdminAccount ? (
+                              <button
+                                type="button"
+                                onClick={() => setShowRoleModal(u)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all hover:scale-105 active:scale-95 group cursor-pointer ${
+                                  u.role === 'admin' 
+                                    ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25 hover:border-cyan-500/50' 
+                                    : 'bg-slate-700/50 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:border-slate-500'
+                                }`}
+                                title="Click to change user role (Super Admin only)"
+                              >
+                                {u.role === 'admin' ? <Shield className="w-3 h-3 text-cyan-400" /> : <User className="w-3 h-3 text-slate-400" />}
+                                <span>{u.role.toUpperCase()}</span>
+                                <span className="text-[10px] text-cyan-400/80 group-hover:text-cyan-300 ml-0.5 font-normal">✎</span>
+                              </button>
+                            ) : (
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                                u.role === 'superadmin'
+                                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                                  : u.role === 'admin' 
+                                  ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' 
+                                  : 'bg-slate-700/50 text-slate-300 border border-slate-600'
+                              }`}>
+                                {u.role === 'superadmin' ? <Crown className="w-3 h-3" /> : u.role === 'admin' ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                                {u.role === 'superadmin' ? 'SUPER ADMIN' : u.role.toUpperCase()}
+                              </span>
+                            )}
                           </div>
 
                           {/* Created Date */}
@@ -451,6 +501,29 @@ export default function AdminPanel() {
 
                           {/* Action Buttons */}
                           <div className="col-span-4 flex items-center gap-2 md:justify-end flex-wrap">
+                            {/* Role Change (Super Admin only) */}
+                            {!isSuperAdminAccount && (
+                              isCurrentUserSuperAdmin ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowRoleModal(u)}
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-cyan-600/15 hover:bg-cyan-600/25 text-cyan-300 border border-cyan-500/30 rounded-lg text-xs font-medium transition-all active:scale-95 shadow-sm"
+                                  title="Change user role (Super Admin only)"
+                                >
+                                  <Shield className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>Role</span>
+                                </button>
+                              ) : (
+                                <span
+                                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800/40 text-slate-500 border border-slate-700/40 rounded-lg text-xs font-medium cursor-not-allowed select-none opacity-40"
+                                  title="Only Super Administrator can change user roles"
+                                >
+                                  <Shield className="w-3.5 h-3.5" />
+                                  <span>Role</span>
+                                </span>
+                              )
+                            )}
+
                             {/* Control Permission Toggle */}
                             {isSuperAdminAccount ? (
                               <span
@@ -495,10 +568,18 @@ export default function AdminPanel() {
 
                             {/* Change Password */}
                             <button
-                              onClick={() => setShowPasswordModal(u)}
+                              type="button"
+                              onClick={() => {
+                                if (!canChangePassword) return;
+                                setShowPasswordModal(u);
+                              }}
                               disabled={!canChangePassword}
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-700/80 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-medium transition-all active:scale-95 border border-slate-600 disabled:opacity-30 disabled:cursor-not-allowed"
-                              title={canChangePassword ? "Change password" : "Only Super Admin can change administrator passwords"}
+                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                                canChangePassword
+                                  ? "bg-slate-700/80 hover:bg-slate-600 text-slate-200 border-slate-600 active:scale-95 cursor-pointer shadow-sm"
+                                  : "bg-slate-800/40 text-slate-600 border-slate-700/40 opacity-25 cursor-not-allowed select-none pointer-events-none"
+                              }`}
+                              title={passwordTooltip}
                             >
                               <KeyRound className="w-3.5 h-3.5" />
                               <span>Password</span>
@@ -506,9 +587,17 @@ export default function AdminPanel() {
 
                             {/* Delete User */}
                             <button
-                              onClick={() => setShowDeleteModal(u)}
+                              type="button"
+                              onClick={() => {
+                                if (!canDelete) return;
+                                setShowDeleteModal(u);
+                              }}
                               disabled={!canDelete}
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-xs font-medium transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed"
+                              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                                canDelete
+                                  ? "bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/20 active:scale-95 cursor-pointer"
+                                  : "bg-slate-800/40 text-slate-600 border-slate-700/40 opacity-25 cursor-not-allowed select-none pointer-events-none"
+                              }`}
                               title={deleteTooltip}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -596,17 +685,6 @@ export default function AdminPanel() {
                   </div>
                   <p className="text-xs text-slate-400">Track, investigate and resolve hardware or software problems submitted by operators</p>
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => fetchReports()}
-                  disabled={reportsLoading}
-                  className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl border border-slate-700 text-xs transition-colors"
-                  title="Reload reports"
-                >
-                  <RefreshCw className={`w-4 h-4 ${reportsLoading ? 'animate-spin text-amber-400' : ''}`} />
-                </button>
               </div>
             </div>
 
@@ -798,6 +876,11 @@ export default function AdminPanel() {
       )}
 
       {/* ============================================================== */}
+      {/* BLOG 3: ESP32 CONTROLLERS HUB                                 */}
+      {/* ============================================================== */}
+      {activeBlock === 'controllers' && <ControllersPanel />}
+
+      {/* ============================================================== */}
       {/* MODALS                                                         */}
       {/* ============================================================== */}
 
@@ -816,6 +899,17 @@ export default function AdminPanel() {
             userId={showPasswordModal.id}
             onSubmit={handleChangePassword}
             onCancel={() => setShowPasswordModal(null)}
+          />
+        </Modal>
+      )}
+
+      {/* Change Role Modal (Super Admin only) */}
+      {showRoleModal && (
+        <Modal onClose={() => setShowRoleModal(null)} title={`Change Access Role — ${showRoleModal.username}`}>
+          <ChangeRoleForm
+            user={showRoleModal}
+            onSubmit={handleUpdateRole}
+            onCancel={() => setShowRoleModal(null)}
           />
         </Modal>
       )}
@@ -945,6 +1039,132 @@ function ChangePasswordForm({ userId, onSubmit, onCancel }) {
         <button type="submit" disabled={loading} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-semibold transition-all duration-200 active:scale-95 flex items-center gap-2 disabled:opacity-60 shadow-lg shadow-cyan-500/20">
           {loading && <Loader2 className="w-4 h-4 animate-spin" />}
           Update Password
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ChangeRoleForm({ user, onSubmit, onCancel }) {
+  const [selectedRole, setSelectedRole] = useState(user?.role || 'user');
+  const [loading, setLoading] = useState(false);
+
+  const isCurrentRole = selectedRole === user?.role;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (isCurrentRole) {
+      toast('Selected role is already assigned to this user', { icon: 'ℹ️' });
+      onCancel();
+      return;
+    }
+    setLoading(true);
+    await onSubmit(user.id, selectedRole);
+    setLoading(false);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Target User Info */}
+      <div className="bg-slate-900/60 border border-slate-700/70 rounded-xl p-3 flex items-center justify-between">
+        <div>
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Target User</div>
+          <div className="text-sm font-bold text-slate-100 mt-0.5">{user?.username}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Current Role</div>
+          <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full mt-0.5 ${
+            user?.role === 'admin'
+              ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+              : 'bg-slate-700/60 text-slate-300 border border-slate-600'
+          }`}>
+            {user?.role === 'admin' ? <Shield className="w-3 h-3" /> : <User className="w-3 h-3" />}
+            {user?.role?.toUpperCase()}
+          </span>
+        </div>
+      </div>
+
+      {/* Role Options */}
+      <div className="space-y-2.5">
+        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">Select Access Role</label>
+        
+        {/* Option: Standard User */}
+        <label
+          className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+            selectedRole === 'user'
+              ? 'bg-cyan-500/10 border-cyan-500/40 text-slate-100 shadow-sm'
+              : 'bg-slate-900/40 border-slate-700/70 hover:border-slate-600 text-slate-300'
+          }`}
+        >
+          <input
+            type="radio"
+            name="assignedRole"
+            value="user"
+            checked={selectedRole === 'user'}
+            onChange={() => setSelectedRole('user')}
+            className="mt-1 text-cyan-500 focus:ring-cyan-500"
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2 font-semibold text-sm text-slate-200">
+              <User className="w-4 h-4 text-slate-400" />
+              <span>Standard User (Operator)</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Limited to device operations and viewing logs. Cannot access admin panel, manage user accounts, or resolve bug reports.
+            </p>
+          </div>
+        </label>
+
+        {/* Option: Administrator */}
+        <label
+          className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+            selectedRole === 'admin'
+              ? 'bg-cyan-500/10 border-cyan-500/40 text-slate-100 shadow-sm'
+              : 'bg-slate-900/40 border-slate-700/70 hover:border-slate-600 text-slate-300'
+          }`}
+        >
+          <input
+            type="radio"
+            name="assignedRole"
+            value="admin"
+            checked={selectedRole === 'admin'}
+            onChange={() => setSelectedRole('admin')}
+            className="mt-1 text-cyan-500 focus:ring-cyan-500"
+          />
+          <div className="flex-1">
+            <div className="flex items-center gap-2 font-semibold text-sm text-cyan-300">
+              <Shield className="w-4 h-4 text-cyan-400" />
+              <span>Administrator</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Full access to add and manage devices, configure parking slots, manage standard operator accounts, and handle issue reports.
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {/* Super Admin Notice */}
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-300/90 flex items-start gap-2.5">
+        <Crown className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+        <span>Super Administrator Authority: Only you have permission to elevate users to Administrator or reassign roles.</span>
+      </div>
+
+      {/* Modal Actions */}
+      <div className="flex gap-3 justify-end pt-3 border-t border-slate-700/50">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 bg-slate-700/70 hover:bg-slate-700 text-slate-300 rounded-xl text-sm transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={loading || isCurrentRole}
+          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-sm font-semibold transition-all duration-200 active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-cyan-500/20"
+        >
+          {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+          Apply Role Change
         </button>
       </div>
     </form>

@@ -11,13 +11,29 @@ import AddComponentModal from "../components/AddComponentModal";
 import ReportModal from "../components/ReportModal";
 import EmergencyBar from "../components/EmergencyBar";
 import ParkingFloor from "../components/ParkingFloor";
-import { LayoutGrid, Users, Clock, Loader2, Plus, Lock, WifiOff, Car } from "lucide-react";
+import {
+  LayoutGrid,
+  Users,
+  Clock,
+  Loader2,
+  Plus,
+  Lock,
+  WifiOff,
+  Car,
+} from "lucide-react";
 import toast from "react-hot-toast";
 
 export default function DashboardPage() {
   const { user } = useContext(AuthContext);
-  const { deviceOnline, esp32Online } = useContext(WebSocketContext);
-  const isDeviceOnline = deviceOnline ?? esp32Online;
+  const {
+    deviceOnline,
+    esp32Online,
+    controllers = [],
+    onlineControllersCount = 0,
+    totalControllersCount = 0,
+  } = useContext(WebSocketContext);
+  const isDeviceOnline =
+    onlineControllersCount > 0 || (deviceOnline ?? esp32Online);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("controls");
@@ -29,11 +45,16 @@ export default function DashboardPage() {
   const [reportOpen, setReportOpen] = useState(false);
 
   // Priority 1: Emergency System State
-  const [emergencyState, setEmergencyState] = useState({ mode: 'normal' });
+  const [emergencyState, setEmergencyState] = useState({ mode: "normal" });
 
   // Priority 2: Parking Slots & Capacity State
   const [parkingSlots, setParkingSlots] = useState([]);
-  const [parkingStats, setParkingStats] = useState({ total: 0, occupied: 0, available: 0, isFull: false });
+  const [parkingStats, setParkingStats] = useState({
+    total: 0,
+    occupied: 0,
+    available: 0,
+    isFull: false,
+  });
 
   const audioCtxRef = useRef(null);
   const lastNotifRef = useRef({});
@@ -60,12 +81,19 @@ export default function DashboardPage() {
     try {
       const [emData, pkData] = await Promise.all([
         getEmergencyStatus().catch(() => null),
-        getParkingSlots().catch(() => null)
+        getParkingSlots().catch(() => null),
       ]);
       if (emData) setEmergencyState(emData);
       if (pkData) {
         setParkingSlots(pkData.slots || []);
-        setParkingStats(pkData.stats || { total: 0, occupied: 0, available: 0, isFull: false });
+        setParkingStats(
+          pkData.stats || {
+            total: 0,
+            occupied: 0,
+            available: 0,
+            isFull: false,
+          },
+        );
       }
     } catch (e) {
       console.error("Failed to fetch emergency / parking data", e);
@@ -75,15 +103,16 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchDevices();
     fetchEmergencyAndParking();
-    
+
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
+      if (document.visibilityState === "visible") {
         fetchDevices();
         fetchEmergencyAndParking();
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [fetchDevices, fetchEmergencyAndParking]);
 
   // Play notification sound using Web Audio API
@@ -129,8 +158,8 @@ export default function DashboardPage() {
   useEffect(() => {
     const handler = (e) => {
       const data = e.detail;
-      
-      if (data.type === 'init-state') {
+
+      if (data.type === "init-state") {
         const devList = data.devices || [];
         devList.forEach((d) => {
           deviceStatesRef.current[d.id] = { ...(d.state || {}) };
@@ -139,7 +168,14 @@ export default function DashboardPage() {
         if (data.emergency) setEmergencyState(data.emergency);
         if (data.parking) {
           setParkingSlots(data.parking.slots || []);
-          setParkingStats(data.parking.stats || { total: 0, occupied: 0, available: 0, isFull: false });
+          setParkingStats(
+            data.parking.stats || {
+              total: 0,
+              occupied: 0,
+              available: 0,
+              isFull: false,
+            },
+          );
         }
       }
 
@@ -178,7 +214,11 @@ export default function DashboardPage() {
         );
 
         // 2. Only send notification once when status ACTUALLY changes and was triggered by external action!
-        if (statusChanged && data.triggeredBy && data.triggeredBy !== user?.username) {
+        if (
+          statusChanged &&
+          data.triggeredBy &&
+          data.triggeredBy !== user?.username
+        ) {
           const deviceNames = {
             "light-1": "Light 1",
             "light-2": "Light 2",
@@ -231,7 +271,10 @@ export default function DashboardPage() {
               duration: 3500,
             });
             playNotifSound();
-            sendBrowserNotif("Floor Management", `${data.triggeredBy}: ${message}`);
+            sendBrowserNotif(
+              "Floor Management",
+              `${data.triggeredBy}: ${message}`,
+            );
           }
         }
       }
@@ -267,7 +310,10 @@ export default function DashboardPage() {
 
       if (data.type === "new-report") {
         window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
-        if ((user?.role === "admin" || user?.role === "superadmin") && data.report?.username !== user?.username) {
+        if (
+          (user?.role === "admin" || user?.role === "superadmin") &&
+          data.report?.username !== user?.username
+        ) {
           const now = Date.now();
           const dedupKey = `new-report-${data.report?.id}`;
           const lastTime = lastNotifRef.current[dedupKey] || 0;
@@ -282,21 +328,34 @@ export default function DashboardPage() {
               read: false,
             };
             setNotifications((prev) => [notif, ...prev].slice(0, 50));
-            toast(`⚠️ New Report: "${data.report?.title}" by ${data.report?.username}`, {
-              id: dedupKey,
-              duration: 6000,
-              icon: "⚠️",
-            });
+            toast(
+              `⚠️ New Report: "${data.report?.title}" by ${data.report?.username}`,
+              {
+                id: dedupKey,
+                duration: 6000,
+                icon: "⚠️",
+              },
+            );
             playNotifSound();
-            sendBrowserNotif("Floor Management - New Report", `${data.report?.username}: ${data.report?.title}`);
+            sendBrowserNotif(
+              "Floor Management - New Report",
+              `${data.report?.username}: ${data.report?.title}`,
+            );
           }
         }
       }
 
       if (data.type === "report-status-update") {
         window.dispatchEvent(new CustomEvent("report-event", { detail: data }));
-        const isMyReport = user?.id === data.report?.user_id || user?.username === data.report?.username;
-        const statusLabel = data.report?.status === 'resolved' ? 'RESOLVED' : data.report?.status === 'in_progress' ? 'IN PROGRESS' : 'PENDING';
+        const isMyReport =
+          user?.id === data.report?.user_id ||
+          user?.username === data.report?.username;
+        const statusLabel =
+          data.report?.status === "resolved"
+            ? "RESOLVED"
+            : data.report?.status === "in_progress"
+              ? "IN PROGRESS"
+              : "PENDING";
         if (isMyReport) {
           const now = Date.now();
           const dedupKey = `report-status-${data.report?.id}-${data.report?.status}`;
@@ -312,13 +371,19 @@ export default function DashboardPage() {
               read: false,
             };
             setNotifications((prev) => [notif, ...prev].slice(0, 50));
-            toast.success(`📋 Report "${data.report?.title}" is now ${statusLabel}!`, {
-              id: dedupKey,
-              duration: 6000,
-              icon: "🔔",
-            });
+            toast.success(
+              `📋 Report "${data.report?.title}" is now ${statusLabel}!`,
+              {
+                id: dedupKey,
+                duration: 6000,
+                icon: "🔔",
+              },
+            );
             playNotifSound();
-            sendBrowserNotif("Floor Management - Report Updated", `"${data.report?.title}" is now ${statusLabel}`);
+            sendBrowserNotif(
+              "Floor Management - Report Updated",
+              `"${data.report?.title}" is now ${statusLabel}`,
+            );
           }
         }
       }
@@ -332,37 +397,50 @@ export default function DashboardPage() {
         setEmergencyState({
           mode: data.mode,
           triggeredBy: data.triggeredBy,
-          timestamp: data.timestamp
+          timestamp: data.timestamp,
         });
         toast.error(
           data.mode === "evacuate"
             ? `🚨 EMERGENCY EVACUATION TRIGGERED by ${data.triggeredBy}!`
             : `🔒 MASTER LOCKDOWN ACTIVATED by ${data.triggeredBy}!`,
-          { duration: 8000 }
+          { duration: 8000 },
         );
         playNotifSound();
         sendBrowserNotif(
           "Floor Management - EMERGENCY ALERT",
-          data.mode === "evacuate" ? "EVACUATION PROTOCOL ACTIVE" : "MASTER LOCKDOWN ACTIVE"
+          data.mode === "evacuate"
+            ? "EVACUATION PROTOCOL ACTIVE"
+            : "MASTER LOCKDOWN ACTIVE",
         );
       }
 
       if (data.type === "emergency-cleared") {
-        setEmergencyState({ mode: "normal", clearedBy: data.clearedBy, timestamp: data.timestamp });
-        toast.success(`✅ Emergency status cleared by ${data.clearedBy}. Normal operation resumed.`);
+        setEmergencyState({
+          mode: "normal",
+          clearedBy: data.clearedBy,
+          timestamp: data.timestamp,
+        });
+        toast.success(
+          `✅ Emergency status cleared by ${data.clearedBy}. Normal operation resumed.`,
+        );
       }
 
       // Priority 2: Parking Slot Real-Time Telemetry
       if (data.type === "slot-update") {
         setParkingSlots((prev) =>
-          prev.map((s) => (s.id === data.slotId ? { ...s, occupied: data.occupied } : s))
+          prev.map((s) =>
+            s.id === data.slotId ? { ...s, occupied: data.occupied } : s,
+          ),
         );
         if (data.stats) setParkingStats(data.stats);
       }
 
       if (data.type === "slots-changed") {
         if (data.action === "create" && data.slot) {
-          setParkingSlots((prev) => [...prev.filter((s) => s.id !== data.slot.id), data.slot]);
+          setParkingSlots((prev) => [
+            ...prev.filter((s) => s.id !== data.slot.id),
+            data.slot,
+          ]);
         } else if (data.action === "delete" && data.slotId) {
           setParkingSlots((prev) => prev.filter((s) => s.id !== data.slotId));
         }
@@ -374,7 +452,11 @@ export default function DashboardPage() {
     return () => window.removeEventListener("ws-message", handler);
   }, [user, playNotifSound, sendBrowserNotif]);
 
-  const isStaff = user?.role === "admin" || user?.role === "superadmin" || user?.username === "admin" || user?.username === "superadmin";
+  const isStaff =
+    user?.role === "admin" ||
+    user?.role === "superadmin" ||
+    user?.username === "admin" ||
+    user?.username === "superadmin";
 
   const tabs = [
     { id: "controls", label: "Controls", icon: LayoutGrid },
@@ -382,21 +464,28 @@ export default function DashboardPage() {
       id: "parking",
       label: "Parking",
       icon: Car,
-      badge: parkingStats.total > 0 ? (parkingStats.isFull ? "FULL" : `${parkingStats.available} Free`) : null,
-      mobileBadge: parkingStats.total > 0 ? (parkingStats.isFull ? "!" : `${parkingStats.available}`) : null,
+      badge:
+        parkingStats.total > 0
+          ? parkingStats.isFull
+            ? "FULL"
+            : `${parkingStats.available} Free`
+          : null,
+      mobileBadge:
+        parkingStats.total > 0
+          ? parkingStats.isFull
+            ? "!"
+            : `${parkingStats.available}`
+          : null,
       badgeColor: parkingStats.isFull
         ? "bg-red-500/20 text-red-400 border-red-500/30"
         : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
     },
-    ...(isStaff
-      ? [{ id: "admin", label: "Accounts", icon: Users }]
-      : []),
+    ...(isStaff ? [{ id: "admin", label: "Admin", icon: Users }] : []),
     { id: "logs", label: "Logs", icon: Clock },
   ];
 
-
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 transition-colors">
       <Navbar
         notifications={notifications}
         onBellClick={() => {
@@ -416,15 +505,15 @@ export default function DashboardPage() {
         />
 
         {/* Tab navigation (desktop) */}
-        <div className="hidden md:flex items-center gap-1 mb-6 bg-slate-800/50 border border-slate-700/50 rounded-xl p-1 w-fit">
+        <div className="hidden md:flex items-center gap-1 mb-6 bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 rounded-xl p-1 w-fit shadow-sm">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
                 activeTab === tab.id
-                  ? "bg-cyan-500/15 text-cyan-400 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-700/50"
+                  ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400 shadow-sm"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-700/50"
               }`}
             >
               <tab.icon className="w-4 h-4" />
@@ -451,29 +540,34 @@ export default function DashboardPage() {
               <div className="space-y-6">
                 {/* Device status banner */}
                 <div
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm ${
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl border text-sm transition-colors ${
                     isDeviceOnline
-                      ? "bg-green-500/5 border-green-500/20 text-green-400"
-                      : "bg-red-500/5 border-red-500/20 text-red-400"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-green-500/5 dark:border-green-500/20 dark:text-green-400"
+                      : "bg-red-50 border-red-200 text-red-800 dark:bg-red-500/5 dark:border-red-500/20 dark:text-red-400"
                   }`}
                 >
                   <div
-                    className={`w-2.5 h-2.5 rounded-full ${isDeviceOnline ? "bg-green-400 animate-pulse" : "bg-red-400"}`}
+                    className={`w-2.5 h-2.5 rounded-full ${isDeviceOnline ? "bg-emerald-500 dark:bg-green-400 animate-pulse" : "bg-red-500 dark:bg-red-400"}`}
                   />
                   <span className="font-medium">
-                    {isDeviceOnline ? "Connected & Healthy" : "Offline / Not Responding"}
+                    {totalControllersCount > 1
+                      ? `${onlineControllersCount}/${totalControllersCount} Devices Online`
+                      : isDeviceOnline
+                        ? "ESP32 Connected & Healthy"
+                        : "ESP32 Offline / Not Responding"}
                   </span>
                   {!isDeviceOnline && (
-                    <span className="text-xs text-red-400/90 ml-auto flex items-center gap-1.5 font-medium">
-                      <Lock className="w-3.5 h-3.5" /> Controls Locked — Connect device to operate
+                    <span className="text-xs text-red-600 dark:text-red-400/90 ml-auto flex items-center gap-1.5 font-medium">
+                      <Lock className="w-3.5 h-3.5" /> Controls Locked — Connect
+                      device to operate
                     </span>
                   )}
                 </div>
 
                 {/* Header with Add Component button */}
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">
-                    Building Components ({devices.length})
+                  <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                    Components ({devices.length})
                   </h3>
                   {(user?.role === "admin" || user?.role === "superadmin") && (
                     <button
@@ -488,7 +582,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Device grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 min-w-0 items-stretch">
                   {devices.map((device) => (
                     <DeviceCard
                       key={device.id}
@@ -507,11 +601,15 @@ export default function DashboardPage() {
                   slots={parkingSlots}
                   stats={parkingStats}
                   onSlotUpdated={(slot, stats) => {
-                    setParkingSlots((prev) => prev.map((s) => (s.id === slot.id ? slot : s)));
+                    setParkingSlots((prev) =>
+                      prev.map((s) => (s.id === slot.id ? slot : s)),
+                    );
                     if (stats) setParkingStats(stats);
                   }}
                   onSlotRemoved={(slotId, stats) => {
-                    setParkingSlots((prev) => prev.filter((s) => s.id !== slotId));
+                    setParkingSlots((prev) =>
+                      prev.filter((s) => s.id !== slotId),
+                    );
                     if (stats) setParkingStats(stats);
                   }}
                   onSlotAdded={(slot, stats) => {
@@ -523,7 +621,6 @@ export default function DashboardPage() {
             )}
 
             {activeTab === "admin" && isStaff && <AdminPanel />}
-
 
             {activeTab === "logs" && <ActivityLog />}
           </>
@@ -584,10 +681,7 @@ export default function DashboardPage() {
       />
 
       {/* Report Modal */}
-      <ReportModal 
-        isOpen={reportOpen} 
-        onClose={() => setReportOpen(false)} 
-      />
+      <ReportModal isOpen={reportOpen} onClose={() => setReportOpen(false)} />
     </div>
   );
 }

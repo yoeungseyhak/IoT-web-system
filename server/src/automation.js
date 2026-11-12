@@ -66,6 +66,10 @@ function setDeviceStateInternal(deviceId, state, reason) {
     const db = getDb();
     const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceId);
     if (!device) return;
+    if (device.disabled === 1) {
+      console.log(`[Automation] Skipped "${device.name}" (${deviceId}) because it is disabled.`);
+      return;
+    }
 
     const existingState = JSON.parse(device.state || '{}');
     const newState = { ...existingState, ...state };

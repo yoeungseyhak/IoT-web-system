@@ -59,6 +59,7 @@ export const updateDeviceDetails = (id, data) => apiRequest(`/devices/${id}/deta
 export const deleteDevice = (id) => apiRequest(`/devices/${id}`, { method: 'DELETE' });
 
 export const toggleUserControl = (id, canControl) => apiRequest(`/users/${id}/control`, { method: 'PUT', body: JSON.stringify({ can_control: canControl }) });
+export const updateUserRole = (id, role) => apiRequest(`/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }) });
 
 export const getReports = (params = {}) => {
   const q = new URLSearchParams();
@@ -67,6 +68,7 @@ export const getReports = (params = {}) => {
   if (params.status && params.status !== 'all') q.set('status', params.status);
   if (params.category && params.category !== 'all') q.set('category', params.category);
   if (params.search) q.set('search', params.search);
+  if (params.mine) q.set('mine', 'true');
   const qs = q.toString();
   return apiRequest(`/reports${qs ? `?${qs}` : ''}`);
 };
@@ -83,5 +85,12 @@ export const clearEmergency = () => apiRequest('/emergency/clear', { method: 'PO
 // Parking API
 export const getParkingSlots = () => apiRequest('/parking/slots');
 export const createParkingSlot = (data) => apiRequest('/parking/slots', { method: 'POST', body: JSON.stringify(data) });
+export const updateParkingSlot = (id, data) => apiRequest(`/parking/slots/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteParkingSlot = (id) => apiRequest(`/parking/slots/${id}`, { method: 'DELETE' });
 export const updateSlotStatus = (id, occupied) => apiRequest(`/parking/slots/${id}/status`, { method: 'PUT', body: JSON.stringify({ occupied }) });
+
+// Controllers API
+export const getControllers = () => apiRequest('/controllers');
+export const createController = (data) => apiRequest('/controllers', { method: 'POST', body: JSON.stringify(data) });
+export const updateController = (id, data) => apiRequest(`/controllers/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const deleteController = (id) => apiRequest(`/controllers/${id}`, { method: 'DELETE' });
