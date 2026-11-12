@@ -239,8 +239,13 @@ router.get('/:id/automation', (req, res) => {
 router.post('/:id/schedule', checkCanControl, requireDeviceEnabled, requireDeviceOnline, (req, res) => {
   try {
     const { id } = req.params;
-    const { enabled, on_time, off_time, days } = req.body;
-    const updated = setSchedule(id, { enabled, on_time, off_time, days }, req.user.username);
+    const { enabled, on_time, off_time, days, timezone, tz_offset } = req.body;
+    const hasOn = typeof on_time === 'string' && on_time.trim().length > 0;
+    const hasOff = typeof off_time === 'string' && off_time.trim().length > 0;
+    if (!hasOn && !hasOff) {
+      return res.status(400).json({ message: 'Please specify at least one Turn ON or Turn OFF time' });
+    }
+    const updated = setSchedule(id, { enabled, on_time, off_time, days, timezone, tz_offset }, req.user.username);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ message: 'Internal server error' });

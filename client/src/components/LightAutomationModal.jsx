@@ -25,7 +25,6 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
   const automation = device.automation || {};
 
   // Schedule state
-  const [scheduleEnabled, setScheduleEnabled] = useState(true);
   const [onTime, setOnTime] = useState('18:00');
   const [offTime, setOffTime] = useState('06:00');
   const [scheduleMode, setScheduleMode] = useState('daily'); // 'daily' | 'datetime'
@@ -49,33 +48,44 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
   const [cycleProgressStr, setCycleProgressStr] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Initialize from device.automation
+  // Initialize from device.automation whenever modal opens or saved schedule changes
   useEffect(() => {
-    if (automation.schedule) {
-      setScheduleEnabled(automation.schedule.enabled !== false);
-      if (automation.schedule.on_time) {
-        if (automation.schedule.on_time.includes('T')) {
-          setScheduleMode('datetime');
-          setOnDateTime(automation.schedule.on_time);
-        } else {
-          setScheduleMode('daily');
-          setOnTime(automation.schedule.on_time);
-        }
-      }
-      if (automation.schedule.off_time) {
-        if (automation.schedule.off_time.includes('T')) {
-          setScheduleMode('datetime');
-          setOffDateTime(automation.schedule.off_time);
-        } else {
-          setScheduleMode('daily');
-          setOffTime(automation.schedule.off_time);
-        }
-      }
-      if (Array.isArray(automation.schedule.days)) {
-        setSelectedDays(automation.schedule.days);
-      }
+    if (!isOpen) return;
+    const sched = automation.schedule;
+    if (!sched) {
+      setScheduleMode('daily');
+      setOnTime('18:00');
+      setOffTime('06:00');
+      setOnDateTime('');
+      setOffDateTime('');
+      setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+      return;
     }
-  }, [automation.schedule]);
+
+    const isDateTimeMode = Boolean(
+      (sched.on_time && sched.on_time.includes('T')) ||
+      (sched.off_time && sched.off_time.includes('T')) ||
+      sched.days === null
+    );
+
+    if (isDateTimeMode) {
+      setScheduleMode('datetime');
+      setOnDateTime(sched.on_time && sched.on_time.includes('T') ? sched.on_time : '');
+      setOffDateTime(sched.off_time && sched.off_time.includes('T') ? sched.off_time : '');
+    } else {
+      setScheduleMode('daily');
+      setOnTime(sched.on_time || '');
+      setOffTime(sched.off_time || '');
+      setOnDateTime('');
+      setOffDateTime('');
+    }
+
+    if (Array.isArray(sched.days) && sched.days.length > 0) {
+      setSelectedDays(sched.days);
+    } else if (!isDateTimeMode) {
+      setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+    }
+  }, [isOpen, automation.schedule]);
 
   // Tick for remaining countdown and cycle time display
   useEffect(() => {
@@ -137,19 +147,50 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
     }
   };
 
+  const syncAutomationState = (updatedAutomation) => {
+    if (updatedAutomation && typeof updatedAutomation === 'object') {
+      window.dispatchEvent(new CustomEvent('ws-message', {
+        detail: {
+          type: 'automation-update',
+          deviceId: device.id,
+          automation: updatedAutomation
+        }
+      }));
+    }
+    if (onAutomationChanged) onAutomationChanged(updatedAutomation);
+  };
+
   // Handlers
   const handleSaveSchedule = async () => {
+    const rawOn = scheduleMode === 'daily' ? onTime : onDateTime;
+    const rawOff = scheduleMode === 'daily' ? offTime : offDateTime;
+    const targetOn = rawOn ? rawOn.trim() : '';
+    const targetOff = rawOff ? rawOff.trim() : '';
+
+    if (!targetOn && !targetOff) {
+      toast.error(
+        scheduleMode === 'daily'
+          ? 'Please select at least a Turn ON or Turn OFF time'
+          : 'Please select at least a Turn ON or Turn OFF date & time'
+      );
+      return;
+    }
+
     setLoading(true);
     try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const tz_offset = new Date().getTimezoneOffset();
       const payload = {
-        enabled: scheduleEnabled,
-        on_time: scheduleMode === 'daily' ? onTime : onDateTime,
-        off_time: scheduleMode === 'daily' ? offTime : offDateTime,
-        days: scheduleMode === 'daily' ? selectedDays : null
+        enabled: true,
+        on_time: targetOn || null,
+        off_time: targetOff || null,
+        days: scheduleMode === 'daily' ? selectedDays : null,
+        timezone,
+        tz_offset
       };
-      await setDeviceSchedule(device.id, payload);
+      const updated = await setDeviceSchedule(device.id, payload);
+      syncAutomationState(updated);
       toast.success('Schedule saved successfully');
-      if (onAutomationChanged) onAutomationChanged();
     } catch (err) {
       toast.error(err.message || 'Failed to save schedule');
     } finally {
@@ -165,12 +206,12 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
     }
     setLoading(true);
     try {
-      await setDeviceCountdown(device.id, {
+      const updated = await setDeviceCountdown(device.id, {
         action: countdownAction,
         duration_seconds: totalSec
       });
+      syncAutomationState(updated);
       toast.success(`Countdown started: Auto-${countdownAction === 'turn_on' ? 'ON' : 'OFF'} in ${countdownHours > 0 ? countdownHours + 'h ' : ''}${countdownMinutes}m ${countdownSeconds}s`);
-      if (onAutomationChanged) onAutomationChanged();
     } catch (err) {
       toast.error(err.message || 'Failed to start countdown');
     } finally {
@@ -189,13 +230,13 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
     }
     setLoading(true);
     try {
-      await setDeviceCycleCount(device.id, {
+      const updated = await setDeviceCycleCount(device.id, {
         total_count: totalCount,
         interval_on_sec: intervalOn,
         interval_off_sec: intervalOff
       });
+      syncAutomationState(updated);
       toast.success(`Started cycle count: ${totalCount} times`);
-      if (onAutomationChanged) onAutomationChanged();
     } catch (err) {
       toast.error(err.message || 'Failed to start cycle count');
     } finally {
@@ -206,9 +247,9 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
   const handleCancel = async (type) => {
     setLoading(true);
     try {
-      await cancelDeviceAutomation(device.id, type);
+      const updated = await cancelDeviceAutomation(device.id, type);
+      syncAutomationState(updated);
       toast.success(`Cancelled ${type.replace('_', ' ')}`);
-      if (onAutomationChanged) onAutomationChanged();
     } catch (err) {
       toast.error(err.message || 'Failed to cancel');
     } finally {
@@ -299,7 +340,9 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                       {automation.schedule.off_time && `• OFF at ${automation.schedule.off_time}`}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {automation.schedule.days ? 'Daily repeat' : 'Specific date'}
+                      {(automation.schedule.on_time?.includes('T') || automation.schedule.off_time?.includes('T') || !automation.schedule.days)
+                        ? 'Specific date'
+                        : 'Daily repeat'}
                     </p>
                   </div>
                   <button

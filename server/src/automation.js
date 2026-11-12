@@ -91,13 +91,93 @@ function setDeviceStateInternal(deviceId, state, reason) {
 // PUBLIC API METHODS
 // ----------------------------------------------------
 
+function normalizeScheduleTime(val) {
+  if (typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes('T')) return trimmed.slice(0, 16);
+  return trimmed.slice(0, 5);
+}
+
+const WEEKDAY_MAP = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function getNowInScheduleTimezone(now, schedule) {
+  const tz = schedule && typeof schedule.timezone === 'string' ? schedule.timezone.trim() : '';
+  if (tz) {
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+        weekday: 'short'
+      }).formatToParts(now);
+      const map = {};
+      for (const p of parts) {
+        if (p.type !== 'literal') map[p.type] = p.value;
+      }
+      const hour = map.hour === '24' ? '00' : map.hour;
+      const dayOfWeek = WEEKDAY_MAP[map.weekday];
+      if (map.year && map.month && map.day && hour && map.minute && dayOfWeek !== undefined) {
+        const hhmm = `${hour}:${map.minute}`;
+        return {
+          hhmm,
+          dateTime: `${map.year}-${map.month}-${map.day}T${hhmm}`,
+          dayOfWeek
+        };
+      }
+    } catch (e) {
+      // Fall back to numeric offset or server local time if timezone string is invalid
+    }
+  }
+
+  if (schedule && typeof schedule.tz_offset === 'number' && Number.isFinite(schedule.tz_offset)) {
+    const shifted = new Date(now.getTime() - schedule.tz_offset * 60000);
+    const yyyy = shifted.getUTCFullYear();
+    const mm = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(shifted.getUTCDate()).padStart(2, '0');
+    const hh = String(shifted.getUTCHours()).padStart(2, '0');
+    const min = String(shifted.getUTCMinutes()).padStart(2, '0');
+    const hhmm = `${hh}:${min}`;
+    return {
+      hhmm,
+      dateTime: `${yyyy}-${mm}-${dd}T${hhmm}`,
+      dayOfWeek: shifted.getUTCDay()
+    };
+  }
+
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const hhmm = `${hh}:${min}`;
+  return {
+    hhmm,
+    dateTime: `${yyyy}-${mm}-${dd}T${hhmm}`,
+    dayOfWeek: now.getDay()
+  };
+}
+
 function setSchedule(deviceId, config, username = 'admin') {
   const current = automationsMap.get(deviceId) || { schedule: null, countdown: null, cycle_count: null };
+  const onTime = normalizeScheduleTime(config.on_time);
+  const offTime = normalizeScheduleTime(config.off_time);
+  const isDateTimeSchedule = Boolean((onTime && onTime.includes('T')) || (offTime && offTime.includes('T')));
+  const days = config.days === null || isDateTimeSchedule
+    ? null
+    : (Array.isArray(config.days) && config.days.length > 0 ? config.days : [0, 1, 2, 3, 4, 5, 6]);
+
   current.schedule = {
     enabled: config.enabled !== false,
-    on_time: config.on_time || null,       // "HH:mm" or "YYYY-MM-DDTHH:mm"
-    off_time: config.off_time || null,     // "HH:mm" or "YYYY-MM-DDTHH:mm"
-    days: Array.isArray(config.days) ? config.days : [0, 1, 2, 3, 4, 5, 6], // default everyday
+    on_time: onTime,
+    off_time: offTime,
+    days,
+    timezone: typeof config.timezone === 'string' && config.timezone.trim() ? config.timezone.trim() : null,
+    tz_offset: typeof config.tz_offset === 'number' && Number.isFinite(config.tz_offset) ? config.tz_offset : null,
     last_on_triggered: null,
     last_off_triggered: null
   };
@@ -107,7 +187,7 @@ function setSchedule(deviceId, config, username = 'admin') {
 
   const db = getDb();
   db.prepare('INSERT INTO logs (user_id, username, action, device_id, device_name, details) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(null, username, 'set-schedule', deviceId, deviceId, `Schedule set: ON at ${config.on_time || 'none'}, OFF at ${config.off_time || 'none'}`);
+    .run(null, username, 'set-schedule', deviceId, deviceId, `Schedule set: ON at ${onTime || 'none'}, OFF at ${offTime || 'none'}`);
 
   return current;
 }
@@ -200,13 +280,6 @@ function cancelAutomation(deviceId, type, username = 'admin') {
 function tick() {
   const now = new Date();
   const nowMs = now.getTime();
-  const currentDay = now.getDay(); // 0 = Sun, 1 = Mon, etc.
-  
-  // Format current HH:mm
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const currentHHmm = `${hours}:${minutes}`;
-  const currentDateISO = now.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
 
   automationsMap.forEach((auto, deviceId) => {
     let changed = false;
@@ -214,24 +287,27 @@ function tick() {
     // 1. EVALUATE SCHEDULE
     if (auto.schedule && auto.schedule.enabled) {
       const { on_time, off_time, days, last_on_triggered, last_off_triggered } = auto.schedule;
-      const isDayActive = !days || days.length === 0 || days.includes(currentDay);
+      const { hhmm, dateTime, dayOfWeek } = getNowInScheduleTimezone(now, auto.schedule);
+      const normalizedOn = normalizeScheduleTime(on_time);
+      const normalizedOff = normalizeScheduleTime(off_time);
+      const isDayActive = !days || days.length === 0 || days.includes(dayOfWeek);
 
       // Check ON schedule
-      if (on_time && isDayActive) {
-        const matches = on_time.includes('T') ? currentDateISO === on_time : currentHHmm === on_time;
-        if (matches && last_on_triggered !== currentDateISO) {
-          auto.schedule.last_on_triggered = currentDateISO;
-          setDeviceStateInternal(deviceId, { on: true }, `Scheduled Auto-ON (${on_time})`);
+      if (normalizedOn && (normalizedOn.includes('T') || isDayActive)) {
+        const matches = normalizedOn.includes('T') ? dateTime === normalizedOn : hhmm === normalizedOn;
+        if (matches && last_on_triggered !== dateTime) {
+          auto.schedule.last_on_triggered = dateTime;
+          setDeviceStateInternal(deviceId, { on: true }, `Scheduled Auto-ON (${normalizedOn})`);
           changed = true;
         }
       }
 
       // Check OFF schedule
-      if (off_time && isDayActive) {
-        const matches = off_time.includes('T') ? currentDateISO === off_time : currentHHmm === off_time;
-        if (matches && last_off_triggered !== currentDateISO) {
-          auto.schedule.last_off_triggered = currentDateISO;
-          setDeviceStateInternal(deviceId, { on: false }, `Scheduled Auto-OFF (${off_time})`);
+      if (normalizedOff && (normalizedOff.includes('T') || isDayActive)) {
+        const matches = normalizedOff.includes('T') ? dateTime === normalizedOff : hhmm === normalizedOff;
+        if (matches && last_off_triggered !== dateTime) {
+          auto.schedule.last_off_triggered = dateTime;
+          setDeviceStateInternal(deviceId, { on: false }, `Scheduled Auto-OFF (${normalizedOff})`);
           changed = true;
         }
       }
