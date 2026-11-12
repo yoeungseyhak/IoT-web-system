@@ -9,6 +9,7 @@ const {
   setCycleCount,
   cancelAutomation
 } = require('../automation');
+const { validateHardwarePin, findPinConflict } = require('../utils/pinValidator');
 
 const router = express.Router();
 
@@ -162,7 +163,7 @@ router.put('/:id', checkCanControl, requireDeviceEnabled, requireDeviceOnline, (
     // Merge existing state with new state (partial update)
     const newState = { ...existingState, ...state };
 
-    db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    db.prepare('UPDATE devices SET state = ?, pending_sync = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(JSON.stringify(newState), id);
 
     // Rolling door auto transition timer
@@ -235,8 +236,8 @@ router.get('/:id/automation', (req, res) => {
   }
 });
 
-// POST /api/devices/:id/schedule - Set time schedule
-router.post('/:id/schedule', checkCanControl, requireDeviceEnabled, requireDeviceOnline, (req, res) => {
+// POST /api/devices/:id/schedule - Set time schedule (allowed even when ESP32 is offline; synced on reconnect)
+router.post('/:id/schedule', checkCanControl, requireDeviceEnabled, (req, res) => {
   try {
     const { id } = req.params;
     const { enabled, on_time, off_time, days, timezone, tz_offset } = req.body;
@@ -246,7 +247,8 @@ router.post('/:id/schedule', checkCanControl, requireDeviceEnabled, requireDevic
       return res.status(400).json({ message: 'Please specify at least one Turn ON or Turn OFF time' });
     }
     const updated = setSchedule(id, { enabled, on_time, off_time, days, timezone, tz_offset }, req.user.username);
-    res.json(updated);
+    const controllerOnline = typeof isControllerOnlineForDevice === 'function' ? isControllerOnlineForDevice(id) : true;
+    res.json({ ...updated, controllerOnline });
   } catch (err) {
     res.status(500).json({ message: 'Internal server error' });
   }
@@ -317,6 +319,15 @@ router.post('/', requireAdmin, (req, res) => {
     const controllerVal = controller_id ? controller_id.trim() : '';
 
     const db = getDb();
+    const pinCheck = validateHardwarePin(pinVal, { allowInputOnly: false });
+    if (!pinCheck.valid) {
+      return res.status(pinCheck.status).json({ message: pinCheck.message });
+    }
+    const conflict = findPinConflict(db, { pin: pinVal, controllerId: controllerVal });
+    if (conflict) {
+      return res.status(409).json({ message: conflict.message });
+    }
+
     db.prepare('INSERT INTO devices (id, name, type, pin, controller_id, state) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, name.trim(), type, pinVal, controllerVal, JSON.stringify(defaultState));
 
@@ -372,6 +383,15 @@ router.put('/:id/details', requireAdmin, (req, res) => {
     const newPin = pin !== undefined && pin !== null ? pin.trim() : (device.pin || '');
     const newController = controller_id !== undefined ? (controller_id || '').trim() : (device.controller_id || '');
     const newDisabled = disabled !== undefined ? (disabled ? 1 : 0) : (device.disabled || 0);
+
+    const pinCheck = validateHardwarePin(newPin, { allowInputOnly: false });
+    if (!pinCheck.valid) {
+      return res.status(pinCheck.status).json({ message: pinCheck.message });
+    }
+    const conflict = findPinConflict(db, { pin: newPin, controllerId: newController, excludeDeviceId: id });
+    if (conflict) {
+      return res.status(409).json({ message: conflict.message });
+    }
 
     db.prepare('UPDATE devices SET name = ?, pin = ?, controller_id = ?, disabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(newName, newPin, newController, newDisabled, id);

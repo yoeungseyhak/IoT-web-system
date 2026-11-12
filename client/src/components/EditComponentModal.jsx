@@ -1,11 +1,13 @@
-import { useState, useContext, useEffect } from 'react';
+import { useState, useContext, useEffect, useMemo } from 'react';
 import { Settings2, X, Trash2, Cpu, Edit3, Loader2, AlertTriangle, Server, Ban } from 'lucide-react';
 import { updateDeviceDetails, deleteDevice } from '../api';
 import { WebSocketContext } from '../App';
+import { validateAndFindPinConflict, useHardwareInventory } from '../utils/pinValidator';
 import toast from 'react-hot-toast';
 
 export default function EditComponentModal({ device, isOpen, onClose, onUpdated, onDeleted }) {
   const { controllers = [] } = useContext(WebSocketContext) || {};
+  const { devices, slots } = useHardwareInventory(isOpen);
   const [name, setName] = useState(device.name || '');
   const [pin, setPin] = useState((device.pin || '').replace(/GPIO\s*/gi, ''));
   const [controllerId, setControllerId] = useState(device.controller_id || '');
@@ -23,12 +25,32 @@ export default function EditComponentModal({ device, isOpen, onClose, onUpdated,
     }
   }, [isOpen, device]);
 
+  const pinError = useMemo(
+    () =>
+      pin.trim()
+        ? validateAndFindPinConflict({
+            pin,
+            controllerId,
+            devices,
+            slots,
+            controllers,
+            excludeDeviceId: device?.id,
+            allowInputOnly: false
+          })
+        : null,
+    [pin, controllerId, devices, slots, controllers, device?.id]
+  );
+
   if (!isOpen) return null;
 
   const handleSave = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
       toast.error('Component name cannot be empty');
+      return;
+    }
+    if (pinError) {
+      toast.error(pinError);
       return;
     }
 
@@ -137,11 +159,22 @@ export default function EditComponentModal({ device, isOpen, onClose, onUpdated,
                 value={pin}
                 onChange={e => setPin(e.target.value)}
                 placeholder="e.g. 2 or 18, 19"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+                className={`w-full bg-slate-900 border rounded-xl px-4 py-2.5 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:ring-2 ${
+                  pinError
+                    ? 'border-red-500/70 focus:ring-red-500/40 focus:border-red-500'
+                    : 'border-slate-700 focus:ring-cyan-500/50 focus:border-cyan-500'
+                }`}
               />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Specifies which physical pin on the ESP32 microcontroller controls this component.
-              </p>
+              {pinError ? (
+                <div className="mt-2 flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <span>{pinError}</span>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Specifies which physical pin on the ESP32 microcontroller controls this component.
+                </p>
+              )}
             </div>
 
             <div className={`rounded-xl p-3.5 border transition-colors ${
@@ -211,8 +244,8 @@ export default function EditComponentModal({ device, isOpen, onClose, onUpdated,
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="flex items-center gap-1.5 px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-cyan-500/20 active:scale-95 disabled:opacity-50"
+                  disabled={loading || Boolean(pinError)}
+                  className="flex items-center gap-1.5 px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-cyan-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   Save Changes

@@ -133,6 +133,13 @@ function initDatabase() {
         // column already exists
     }
 
+    // Migration for existing database: add pending_sync column for missed automation replay on reconnect
+    try {
+        db.exec("ALTER TABLE devices ADD COLUMN pending_sync TEXT DEFAULT NULL");
+    } catch (e) {
+        // column already exists
+    }
+
     // Seed default controllers if none exist
     try {
         const controllerCount = db.prepare('SELECT COUNT(*) as count FROM controllers').get().count;

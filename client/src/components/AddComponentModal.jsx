@@ -1,16 +1,38 @@
-import { useState, useContext } from 'react';
-import { Plus, X, Cpu, Tag, Layers, Loader2, Server } from 'lucide-react';
+import { useState, useContext, useMemo } from 'react';
+import { Plus, X, Cpu, Tag, Layers, Loader2, Server, AlertTriangle } from 'lucide-react';
 import { createDevice } from '../api';
 import { WebSocketContext } from '../App';
+import { validateAndFindPinConflict, getUsedPinsMap, useHardwareInventory } from '../utils/pinValidator';
 import toast from 'react-hot-toast';
 
 export default function AddComponentModal({ isOpen, onClose, onCreated }) {
   const { controllers = [] } = useContext(WebSocketContext) || {};
+  const { devices, slots } = useHardwareInventory(isOpen);
   const [name, setName] = useState('');
   const [type, setType] = useState('light');
   const [pin, setPin] = useState('');
   const [controllerId, setControllerId] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const usedPins = useMemo(
+    () => getUsedPinsMap({ controllerId, devices, slots }),
+    [controllerId, devices, slots]
+  );
+
+  const pinError = useMemo(
+    () =>
+      pin.trim()
+        ? validateAndFindPinConflict({
+            pin,
+            controllerId,
+            devices,
+            slots,
+            controllers,
+            allowInputOnly: false
+          })
+        : null,
+    [pin, controllerId, devices, slots, controllers]
+  );
 
   if (!isOpen) return null;
 
@@ -35,6 +57,10 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
     }
     if (!pin.trim()) {
       toast.error('ESP32 PIN is required');
+      return;
+    }
+    if (pinError) {
+      toast.error(pinError);
       return;
     }
 
@@ -166,28 +192,45 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
               value={pin}
               onChange={e => setPin(e.target.value)}
               placeholder="e.g. 13 or 25, 26"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+              className={`w-full bg-slate-900 border rounded-xl px-4 py-2.5 text-slate-100 font-mono text-sm placeholder-slate-500 focus:outline-none focus:ring-2 ${
+                pinError
+                  ? 'border-red-500/70 focus:ring-red-500/40 focus:border-red-500'
+                  : 'border-slate-700 focus:ring-cyan-500/50 focus:border-cyan-500'
+              }`}
               required
             />
-            
+            {pinError && (
+              <div className="mt-2 flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{pinError}</span>
+              </div>
+            )}
+
             {/* Pin quick presets */}
             <div className="mt-2">
-              <span className="text-[11px] text-slate-400 block mb-1">Quick Select ESP32 Pin:</span>
+              <span className="text-[11px] text-slate-400 block mb-1">Quick Select ESP32 Pin (occupied pins disabled):</span>
               <div className="flex flex-wrap gap-1.5">
-                {commonPins.slice(0, 10).map(p => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setPin(p)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
-                      pin === p
-                        ? 'bg-cyan-500 text-slate-900 font-bold'
-                        : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
+                {commonPins.map(p => {
+                  const usedInfo = usedPins.get(parseInt(p, 10));
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      disabled={Boolean(usedInfo)}
+                      title={usedInfo ? `In use by ${usedInfo.ownerName}` : `Use pin ${p}`}
+                      onClick={() => setPin(p)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                        usedInfo
+                          ? 'bg-slate-900/40 border border-slate-800 text-slate-600 line-through cursor-not-allowed'
+                          : pin === p
+                            ? 'bg-cyan-500 text-slate-900 font-bold'
+                            : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -203,8 +246,8 @@ export default function AddComponentModal({ isOpen, onClose, onCreated }) {
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="flex items-center gap-1.5 px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-cyan-500/20 active:scale-95 disabled:opacity-50"
+              disabled={loading || Boolean(pinError)}
+              className="flex items-center gap-1.5 px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-cyan-500/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               Add Component

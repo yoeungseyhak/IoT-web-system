@@ -20,6 +20,16 @@ import {
 } from '../api';
 import toast from 'react-hot-toast';
 
+function getNowLocalDateTime() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
 export default function LightAutomationModal({ device, isOpen, onClose, onAutomationChanged }) {
   const [activeTab, setActiveTab] = useState('schedule'); // 'schedule' | 'countdown' | 'cycle'
   const automation = device.automation || {};
@@ -176,6 +186,14 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
       return;
     }
 
+    if (scheduleMode === 'datetime') {
+      const nowLocal = getNowLocalDateTime();
+      if ((targetOn && targetOn < nowLocal) || (targetOff && targetOff < nowLocal)) {
+        toast.error('Please select a current or future date & time');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
@@ -190,7 +208,11 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
       };
       const updated = await setDeviceSchedule(device.id, payload);
       syncAutomationState(updated);
-      toast.success('Schedule saved successfully');
+      if (updated?.controllerOnline === false) {
+        toast.success('Schedule saved! It will sync automatically when the ESP32 reconnects.');
+      } else {
+        toast.success('Schedule saved successfully');
+      }
     } catch (err) {
       toast.error(err.message || 'Failed to save schedule');
     } finally {
@@ -260,84 +282,86 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
   const hasActiveSchedule = automation.schedule && automation.schedule.enabled && (automation.schedule.on_time || automation.schedule.off_time);
   const hasActiveCountdown = automation.countdown && automation.countdown.active;
   const hasActiveCycle = automation.cycle_count && automation.cycle_count.active;
+  const minDateTimeLocal = getNowLocalDateTime();
+  const formatDisplayScheduleTime = (val) => (typeof val === 'string' ? val.replace('T', ' ') : '');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg min-w-0 overflow-hidden flex flex-col max-h-[92vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700 bg-slate-800/80">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-700 bg-slate-800/80 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center flex-shrink-0">
               <Clock className="w-5 h-5" />
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-slate-100">{device.name} Automations</h3>
-              <p className="text-xs text-slate-400">Schedules, Auto Turn On/Off & Count Cycles</p>
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-semibold text-slate-100 truncate">{device.name} Automations</h3>
+              <p className="text-xs text-slate-400 truncate">Schedules, Auto Turn On/Off & Count Cycles</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-700 transition-colors">
+          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-700 transition-colors flex-shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex border-b border-slate-700 bg-slate-900/50 p-1 gap-1">
+        <div className="flex border-b border-slate-700 bg-slate-900/50 p-1 gap-1 min-w-0">
           <button
             onClick={() => setActiveTab('schedule')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all whitespace-nowrap ${
               activeTab === 'schedule'
                 ? 'bg-cyan-500/20 text-cyan-400 shadow-sm border border-cyan-500/30'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Calendar className="w-4 h-4" />
-            Schedule
-            {hasActiveSchedule && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />}
+            <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+            <span className="truncate">Schedule</span>
+            {hasActiveSchedule && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse flex-shrink-0" />}
           </button>
 
           <button
             onClick={() => setActiveTab('countdown')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all whitespace-nowrap ${
               activeTab === 'countdown'
                 ? 'bg-amber-500/20 text-amber-400 shadow-sm border border-amber-500/30'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Timer className="w-4 h-4" />
-            Auto On/Off
-            {hasActiveCountdown && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+            <Timer className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+            <span className="truncate">Auto On/Off</span>
+            {hasActiveCountdown && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />}
           </button>
 
           <button
             onClick={() => setActiveTab('cycle')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`flex-1 min-w-0 flex items-center justify-center gap-1 sm:gap-2 px-1.5 sm:px-3 py-2 sm:py-2.5 rounded-lg text-[11px] sm:text-xs font-semibold transition-all whitespace-nowrap ${
               activeTab === 'cycle'
                 ? 'bg-purple-500/20 text-purple-400 shadow-sm border border-purple-500/30'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Repeat className="w-4 h-4" />
-            Count Cycle
-            {hasActiveCycle && <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />}
+            <Repeat className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+            <span className="truncate">Count Cycle</span>
+            {hasActiveCycle && <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse flex-shrink-0" />}
           </button>
         </div>
 
         {/* Tab Content */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden space-y-5 sm:space-y-6 flex-1 min-w-0">
           {/* ================= TAB 1: SCHEDULE ================= */}
           {activeTab === 'schedule' && (
-            <div className="space-y-5">
+            <div className="space-y-4 sm:space-y-5 min-w-0">
               {/* Active schedule badge */}
               {hasActiveSchedule ? (
-                <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-4 flex items-center justify-between">
-                  <div>
+                <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-3.5 sm:p-4 flex flex-wrap sm:flex-nowrap items-start sm:items-center justify-between gap-3 min-w-0">
+                  <div className="min-w-0 flex-1">
                     <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider">Active Schedule</span>
-                    <p className="text-sm text-slate-200 mt-0.5">
-                      {automation.schedule.on_time && `ON at ${automation.schedule.on_time} `}
-                      {automation.schedule.off_time && `• OFF at ${automation.schedule.off_time}`}
+                    <p className="text-xs sm:text-sm text-slate-200 mt-0.5 break-words">
+                      {automation.schedule.on_time && `ON at ${formatDisplayScheduleTime(automation.schedule.on_time)} `}
+                      {automation.schedule.off_time && `• OFF at ${formatDisplayScheduleTime(automation.schedule.off_time)}`}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
                       {(automation.schedule.on_time?.includes('T') || automation.schedule.off_time?.includes('T') || !automation.schedule.days)
@@ -348,7 +372,7 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                   <button
                     onClick={() => handleCancel('schedule')}
                     disabled={loading}
-                    className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium border border-red-500/20 transition-all"
+                    className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg text-xs font-medium border border-red-500/20 transition-all flex-shrink-0"
                   >
                     Disable
                   </button>
@@ -356,16 +380,16 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
               ) : (
                 <div className="bg-slate-700/20 border border-slate-700 rounded-xl p-3 text-xs text-slate-400 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                  No schedule active. Set daily or future date/time below.
+                  <span>No schedule active. Set daily or future date/time below.</span>
                 </div>
               )}
 
               {/* Mode switch: Daily vs Specific Date */}
-              <div className="flex gap-2 bg-slate-900/60 p-1 rounded-xl border border-slate-700/50">
+              <div className="flex gap-1.5 sm:gap-2 bg-slate-900/60 p-1 rounded-xl border border-slate-700/50 min-w-0">
                 <button
                   type="button"
                   onClick={() => setScheduleMode('daily')}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                  className={`flex-1 min-w-0 px-2 py-2 text-[11px] sm:text-xs font-medium rounded-lg transition-all text-center leading-tight ${
                     scheduleMode === 'daily'
                       ? 'bg-slate-800 text-cyan-400 shadow-sm'
                       : 'text-slate-400 hover:text-slate-200'
@@ -376,21 +400,21 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                 <button
                   type="button"
                   onClick={() => setScheduleMode('datetime')}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                  className={`flex-1 min-w-0 px-2 py-2 text-[11px] sm:text-xs font-medium rounded-lg transition-all text-center leading-tight ${
                     scheduleMode === 'datetime'
                       ? 'bg-slate-800 text-cyan-400 shadow-sm'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Specific Date & Time (No Limit)
+                  Specific Date & Time
                 </button>
               </div>
 
               {/* Time Pickers */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 min-w-0">
+                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-3.5 sm:p-4 min-w-0 max-w-full overflow-hidden">
                   <label className="block text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-green-400" />
+                    <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
                     Turn ON At
                   </label>
                   {scheduleMode === 'daily' ? (
@@ -398,21 +422,22 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                       type="time"
                       value={onTime}
                       onChange={e => setOnTime(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      className="block w-full min-w-0 max-w-full box-border appearance-none [color-scheme:dark] bg-slate-800 border border-slate-600 rounded-lg px-2.5 sm:px-3 py-2 text-slate-100 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
                     />
                   ) : (
                     <input
                       type="datetime-local"
+                      min={minDateTimeLocal}
                       value={onDateTime}
                       onChange={e => setOnDateTime(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      className="block w-full min-w-0 max-w-full box-border appearance-none [color-scheme:dark] bg-slate-800 border border-slate-600 rounded-lg px-2.5 sm:px-3 py-2 text-slate-100 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
                     />
                   )}
                 </div>
 
-                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-4">
+                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-3.5 sm:p-4 min-w-0 max-w-full overflow-hidden">
                   <label className="block text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-red-400" />
+                    <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
                     Turn OFF At
                   </label>
                   {scheduleMode === 'daily' ? (
@@ -420,14 +445,15 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                       type="time"
                       value={offTime}
                       onChange={e => setOffTime(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      className="block w-full min-w-0 max-w-full box-border appearance-none [color-scheme:dark] bg-slate-800 border border-slate-600 rounded-lg px-2.5 sm:px-3 py-2 text-slate-100 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
                     />
                   ) : (
                     <input
                       type="datetime-local"
+                      min={minDateTimeLocal}
                       value={offDateTime}
                       onChange={e => setOffDateTime(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-slate-100 text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      className="block w-full min-w-0 max-w-full box-border appearance-none [color-scheme:dark] bg-slate-800 border border-slate-600 rounded-lg px-2.5 sm:px-3 py-2 text-slate-100 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-cyan-500"
                     />
                   )}
                 </div>
@@ -435,7 +461,7 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
 
               {/* Days selector for daily mode */}
               {scheduleMode === 'daily' && (
-                <div>
+                <div className="min-w-0">
                   <div className="flex justify-between items-center mb-2">
                     <label className="text-xs font-semibold text-slate-300">Repeat Days</label>
                     <button
@@ -446,7 +472,7 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                       Every Day
                     </button>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
                     {daysLabels.map(d => {
                       const isSelected = selectedDays.includes(d.id);
                       return (
@@ -454,7 +480,7 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                           key={d.id}
                           type="button"
                           onClick={() => toggleDay(d.id)}
-                          className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                          className={`py-2 rounded-lg text-[11px] sm:text-xs font-bold transition-all text-center ${
                             isSelected
                               ? 'bg-cyan-500 text-slate-900 shadow-md shadow-cyan-500/20'
                               : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
@@ -469,7 +495,7 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
               )}
 
               {/* Action Buttons */}
-              <div className="flex gap-3 pt-2">
+              <div className="flex gap-2.5 sm:gap-3 pt-2">
                 <button
                   type="button"
                   onClick={handleSaveSchedule}
@@ -483,7 +509,7 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
                     type="button"
                     onClick={() => handleCancel('schedule')}
                     disabled={loading}
-                    className="px-4 py-2.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 text-slate-300 rounded-xl text-sm transition-colors"
+                    className="px-4 py-2.5 bg-slate-700 hover:bg-red-500/20 hover:text-red-400 text-slate-300 rounded-xl text-sm transition-colors flex-shrink-0"
                   >
                     Clear
                   </button>
@@ -670,17 +696,17 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
               )}
 
               {/* Total Count input */}
-              <div>
+              <div className="min-w-0">
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Total Count (How many times to turn ON and OFF)
                 </label>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                   <input
                     type="number"
                     min="1"
                     value={totalCount}
                     onChange={e => setTotalCount(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-32 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-100 font-mono font-bold text-center focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    className="w-28 sm:w-32 bg-slate-900 border border-slate-700 rounded-xl px-3 sm:px-4 py-2.5 text-slate-100 font-mono font-bold text-center focus:outline-none focus:ring-1 focus:ring-purple-500"
                   />
                   <div className="flex gap-1.5 flex-wrap">
                     {[3, 5, 10, 20, 50, 100].map(c => (
@@ -702,27 +728,27 @@ export default function LightAutomationModal({ device, isOpen, onClose, onAutoma
               </div>
 
               {/* Intervals */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 min-w-0">
+                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-3.5 sm:p-4 min-w-0">
                   <label className="block text-xs font-semibold text-slate-300 mb-1">ON Duration (Seconds)</label>
                   <input
                     type="number"
                     min="1"
                     value={intervalOn}
                     onChange={e => setIntervalOn(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-slate-100 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    className="block w-full min-w-0 max-w-full box-border bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-slate-100 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
                   />
                   <span className="text-[11px] text-slate-500 block mt-1">Light stays ON</span>
                 </div>
 
-                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-4">
+                <div className="bg-slate-900/50 border border-slate-700/60 rounded-xl p-3.5 sm:p-4 min-w-0">
                   <label className="block text-xs font-semibold text-slate-300 mb-1">OFF Duration (Seconds)</label>
                   <input
                     type="number"
                     min="1"
                     value={intervalOff}
                     onChange={e => setIntervalOff(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-slate-100 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
+                    className="block w-full min-w-0 max-w-full box-border bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-slate-100 font-mono font-bold focus:outline-none focus:ring-1 focus:ring-purple-500"
                   />
                   <span className="text-[11px] text-slate-500 block mt-1">Light stays OFF</span>
                 </div>

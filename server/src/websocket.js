@@ -194,6 +194,97 @@ function turnOffDevicesForController(controllerId) {
   }
 }
 
+const recentAutomationReplayMap = new Map();
+
+function getBaseDeviceId(deviceId, controllerId) {
+  let baseDeviceId = deviceId;
+  if (controllerId && baseDeviceId.startsWith(`${controllerId}_`)) {
+    baseDeviceId = baseDeviceId.substring(controllerId.length + 1);
+  } else if (controllerId && baseDeviceId.startsWith(`${controllerId}-`)) {
+    baseDeviceId = baseDeviceId.substring(controllerId.length + 1);
+  }
+  return baseDeviceId;
+}
+
+function resolveControllerTzOffset(db, controllerId) {
+  try {
+    const rows = db.prepare(`
+      SELECT a.schedule
+      FROM automations a
+      JOIN devices d ON a.device_id = d.id
+      WHERE a.schedule IS NOT NULL
+        AND (d.controller_id = ? OR d.controller_id = '' OR d.controller_id IS NULL OR d.controller_id = 'all')
+    `).all(controllerId);
+    for (const row of rows) {
+      const sched = JSON.parse(row.schedule || "null");
+      if (sched && typeof sched.tz_offset === "number" && Number.isFinite(sched.tz_offset)) {
+        return sched.tz_offset;
+      }
+    }
+  } catch (e) {}
+
+  if (process.env.DEFAULT_TZ_OFFSET !== undefined) {
+    const parsed = parseInt(process.env.DEFAULT_TZ_OFFSET, 10);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return new Date().getTimezoneOffset();
+}
+
+function replayPendingSyncForDevice(ws, db, deviceRow, controllerId) {
+  if (!deviceRow || !deviceRow.pending_sync || deviceRow.disabled === 1) {
+    return false;
+  }
+  if (!ws || ws.readyState !== 1) return false;
+
+  try {
+    const pending = JSON.parse(deviceRow.pending_sync);
+    if (!pending || !pending.state) return false;
+
+    const targetControllerId = deviceRow.controller_id || controllerId;
+    const baseDeviceId = getBaseDeviceId(deviceRow.id, targetControllerId);
+
+    ws.send(
+      JSON.stringify({
+        type: "device-update",
+        deviceId: baseDeviceId,
+        state: pending.state,
+        pin: deviceRow.pin || "",
+        deviceType: deviceRow.type || "",
+        controllerId: targetControllerId,
+        triggeredBy: pending.triggeredBy || "Automation",
+        timestamp: Date.now(),
+      }),
+    );
+
+    recentAutomationReplayMap.set(deviceRow.id, Date.now() + 10000);
+    db.prepare("UPDATE devices SET pending_sync = NULL WHERE id = ?").run(
+      deviceRow.id,
+    );
+
+    broadcastToAll(
+      {
+        type: "device-update",
+        deviceId: deviceRow.id,
+        state: pending.state,
+        pin: deviceRow.pin || "",
+        deviceType: deviceRow.type || "",
+        controllerId: targetControllerId,
+        triggeredBy: pending.triggeredBy || "Automation",
+        timestamp: Date.now(),
+      },
+      true,
+    );
+
+    console.log(
+      `[WS] Replayed pending automation state for "${deviceRow.id}" to controller "${controllerId}"`,
+    );
+    return true;
+  } catch (err) {
+    console.error("Failed to replay pending_sync for device:", deviceRow.id, err);
+    return false;
+  }
+}
+
 function broadcastDeviceUpdate(deviceId, state, triggeredBy) {
   let pin = "";
   let deviceType = "";
@@ -211,12 +302,7 @@ function broadcastDeviceUpdate(deviceId, state, triggeredBy) {
   } catch (e) {}
 
   // Compute baseDeviceId for hardware controllers (e.g. "esp32-2_light-1" -> "light-1")
-  let baseDeviceId = deviceId;
-  if (controllerId && baseDeviceId.startsWith(`${controllerId}_`)) {
-    baseDeviceId = baseDeviceId.substring(controllerId.length + 1);
-  } else if (controllerId && baseDeviceId.startsWith(`${controllerId}-`)) {
-    baseDeviceId = baseDeviceId.substring(controllerId.length + 1);
-  }
+  const baseDeviceId = getBaseDeviceId(deviceId, controllerId);
 
   const msg = {
     type: "device-update",
@@ -394,13 +480,16 @@ function setupWebSocket(server) {
         const relevantDevices = db
           .prepare(
             `
-                    SELECT id, state, pin, type, controller_id FROM devices 
+                    SELECT id, state, pin, type, controller_id, disabled, pending_sync FROM devices 
                     WHERE controller_id = ? OR controller_id = '' OR controller_id IS NULL OR controller_id = 'all'
                 `,
           )
           .all(controllerId);
 
         relevantDevices.forEach((d) => {
+          if (replayPendingSyncForDevice(ws, db, d, controllerId)) {
+            return;
+          }
           ws.send(
             JSON.stringify({
               type: "device-update",
@@ -444,7 +533,7 @@ function setupWebSocket(server) {
           JSON.stringify({
             type: "time-sync",
             epoch: Math.floor(Date.now() / 1000),
-            tzOffset: new Date().getTimezoneOffset(),
+            tzOffset: resolveControllerTzOffset(db, controllerId),
           }),
         );
       } catch (err) {
@@ -526,7 +615,7 @@ function setupWebSocket(server) {
                 try {
                   const existingDev = db
                     .prepare(
-                      "SELECT id, name, type, pin, state, controller_id FROM devices WHERE id = ?",
+                      "SELECT id, name, type, pin, state, controller_id, disabled, pending_sync FROM devices WHERE id = ?",
                     )
                     .get(targetDevId);
                   if (!existingDev) {
@@ -582,7 +671,14 @@ function setupWebSocket(server) {
                         targetDevId,
                       );
                     }
-                    if (comp.state) {
+                    const replayed = replayPendingSyncForDevice(
+                      ws,
+                      db,
+                      { ...existingDev, controller_id: existingDev.controller_id || controllerId },
+                      controllerId,
+                    );
+                    const replayLockUntil = recentAutomationReplayMap.get(targetDevId) || 0;
+                    if (comp.state && !replayed && Date.now() > replayLockUntil) {
                       const currState = JSON.parse(existingDev.state || "{}");
                       const keys = Object.keys(comp.state);
                       const isDiff = keys.some(
@@ -614,6 +710,22 @@ function setupWebSocket(server) {
                   );
                 }
               });
+            }
+
+            // Replay any queued offline automation states for dynamically-added components bound to this controller
+            try {
+              const pendingRows = db
+                .prepare(
+                  `
+                    SELECT id, state, pin, type, controller_id, disabled, pending_sync FROM devices
+                    WHERE pending_sync IS NOT NULL
+                      AND (controller_id = ? OR controller_id = '' OR controller_id IS NULL OR controller_id = 'all')
+                  `,
+                )
+                .all(controllerId);
+              pendingRows.forEach((row) => replayPendingSyncForDevice(ws, db, row, controllerId));
+            } catch (pendErr) {
+              console.error("[WS] Error replaying pending controller commands:", pendErr);
             }
 
             // 3. Auto-provision parking slots from manifest
@@ -745,7 +857,7 @@ function setupWebSocket(server) {
                 JSON.stringify({
                   type: "time-sync",
                   epoch: Math.floor(Date.now() / 1000),
-                  tzOffset: new Date().getTimezoneOffset(),
+                  tzOffset: resolveControllerTzOffset(db, controllerId),
                 }),
               );
             } catch (tsErr) {}

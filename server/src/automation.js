@@ -1,5 +1,5 @@
 const { getDb } = require('./database');
-const { broadcastDeviceUpdate, broadcastToAll } = require('./websocket');
+const { broadcastDeviceUpdate, broadcastToAll, isControllerOnlineForDevice } = require('./websocket');
 
 // In-memory cache of automations for fast evaluation
 // Key: deviceId -> { schedule, countdown, cycle_count }
@@ -73,13 +73,18 @@ function setDeviceStateInternal(deviceId, state, reason) {
 
     const existingState = JSON.parse(device.state || '{}');
     const newState = { ...existingState, ...state };
+    const isOnline = typeof isControllerOnlineForDevice === 'function' ? isControllerOnlineForDevice(deviceId) : true;
+    const pendingSync = isOnline
+      ? null
+      : JSON.stringify({ state: newState, reason, triggeredBy: 'Automation', timestamp: Date.now() });
 
-    db.prepare('UPDATE devices SET state = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(JSON.stringify(newState), deviceId);
+    db.prepare('UPDATE devices SET state = ?, pending_sync = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(newState), pendingSync, deviceId);
 
     const stateDesc = Object.entries(state).map(([k, v]) => `${k}: ${v}`).join(', ');
+    const offlineTag = isOnline ? '' : ' [Queued: ESP32 offline]';
     db.prepare('INSERT INTO logs (user_id, username, action, device_id, device_name, details) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(null, 'Automation', 'device-update', deviceId, device.name, `${reason} (${stateDesc})`);
+      .run(null, 'Automation', 'device-update', deviceId, device.name, `${reason} (${stateDesc})${offlineTag}`);
 
     broadcastDeviceUpdate(deviceId, newState, 'Automation');
   } catch (err) {
@@ -286,16 +291,20 @@ function tick() {
 
     // 1. EVALUATE SCHEDULE
     if (auto.schedule && auto.schedule.enabled) {
-      const { on_time, off_time, days, last_on_triggered, last_off_triggered } = auto.schedule;
+      const { on_time, off_time, days } = auto.schedule;
       const { hhmm, dateTime, dayOfWeek } = getNowInScheduleTimezone(now, auto.schedule);
       const normalizedOn = normalizeScheduleTime(on_time);
       const normalizedOff = normalizeScheduleTime(off_time);
+      const isSpecificOn = Boolean(normalizedOn && normalizedOn.includes('T'));
+      const isSpecificOff = Boolean(normalizedOff && normalizedOff.includes('T'));
+      const isDailyOn = Boolean(normalizedOn && !isSpecificOn);
+      const isDailyOff = Boolean(normalizedOff && !isSpecificOff);
       const isDayActive = !days || days.length === 0 || days.includes(dayOfWeek);
 
       // Check ON schedule
-      if (normalizedOn && (normalizedOn.includes('T') || isDayActive)) {
-        const matches = normalizedOn.includes('T') ? dateTime === normalizedOn : hhmm === normalizedOn;
-        if (matches && last_on_triggered !== dateTime) {
+      if (normalizedOn && (isSpecificOn || isDayActive)) {
+        const matches = isSpecificOn ? dateTime === normalizedOn : hhmm === normalizedOn;
+        if (matches && auto.schedule.last_on_triggered !== dateTime) {
           auto.schedule.last_on_triggered = dateTime;
           setDeviceStateInternal(deviceId, { on: true }, `Scheduled Auto-ON (${normalizedOn})`);
           changed = true;
@@ -303,11 +312,21 @@ function tick() {
       }
 
       // Check OFF schedule
-      if (normalizedOff && (normalizedOff.includes('T') || isDayActive)) {
-        const matches = normalizedOff.includes('T') ? dateTime === normalizedOff : hhmm === normalizedOff;
-        if (matches && last_off_triggered !== dateTime) {
+      if (normalizedOff && (isSpecificOff || isDayActive)) {
+        const matches = isSpecificOff ? dateTime === normalizedOff : hhmm === normalizedOff;
+        if (matches && auto.schedule.last_off_triggered !== dateTime) {
           auto.schedule.last_off_triggered = dateTime;
           setDeviceStateInternal(deviceId, { on: false }, `Scheduled Auto-OFF (${normalizedOff})`);
+          changed = true;
+        }
+      }
+
+      // Auto-remove Specific Date & Time schedules once all configured one-time targets complete
+      if ((isSpecificOn || isSpecificOff) && !isDailyOn && !isDailyOff) {
+        const onDone = !isSpecificOn || Boolean(auto.schedule.last_on_triggered) || dateTime > normalizedOn;
+        const offDone = !isSpecificOff || Boolean(auto.schedule.last_off_triggered) || dateTime > normalizedOff;
+        if (onDone && offDone) {
+          auto.schedule = null;
           changed = true;
         }
       }

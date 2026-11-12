@@ -1,16 +1,33 @@
-import { useState, useContext } from "react";
-import { X, Car, Plus, Loader2, Cpu, Radio, KeyRound, Server } from "lucide-react";
+import { useState, useContext, useMemo } from "react";
+import { X, Car, Plus, Loader2, Cpu, Radio, KeyRound, Server, AlertTriangle } from "lucide-react";
 import { createParkingSlot } from "../api";
 import { WebSocketContext } from "../App";
+import { validateAndFindPinConflict, useHardwareInventory } from "../utils/pinValidator";
 import toast from "react-hot-toast";
 
 export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
   const { controllers = [] } = useContext(WebSocketContext) || {};
+  const { devices, slots } = useHardwareInventory(isOpen);
   const [name, setName] = useState("");
   const [sensorType, setSensorType] = useState("switch");
-  const [sensorPin, setSensorPin] = useState("32");
+  const [sensorPin, setSensorPin] = useState("");
   const [controllerId, setControllerId] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const pinError = useMemo(
+    () =>
+      sensorPin.trim()
+        ? validateAndFindPinConflict({
+            pin: sensorPin,
+            controllerId,
+            devices,
+            slots,
+            controllers,
+            allowInputOnly: true
+          })
+        : null,
+    [sensorPin, controllerId, devices, slots, controllers]
+  );
 
   if (!isOpen) return null;
 
@@ -18,6 +35,10 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
     e.preventDefault();
     if (!name.trim()) {
       toast.error("Slot name is required");
+      return;
+    }
+    if (pinError) {
+      toast.error(pinError);
       return;
     }
 
@@ -31,6 +52,7 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
       });
       toast.success(`Parking slot "${name}" created successfully!`);
       setName("");
+      setSensorPin("");
       setControllerId("");
       onSlotAdded?.(res.slot, res.stats);
       onClose();
@@ -174,12 +196,23 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
               type="text"
               value={sensorPin}
               onChange={(e) => setSensorPin(e.target.value)}
-              placeholder="e.g. 32 or 32, 33 or 36"
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-slate-900 dark:text-slate-100 font-mono text-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
+              placeholder="e.g. 34 or 32, 33 or 36"
+              className={`w-full bg-slate-50 dark:bg-slate-900 border rounded-xl px-4 py-2.5 text-slate-900 dark:text-slate-100 font-mono text-sm placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 ${
+                pinError
+                  ? 'border-red-500/70 focus:ring-red-500/40 focus:border-red-500'
+                  : 'border-slate-300 dark:border-slate-700 focus:ring-cyan-500/50 focus:border-cyan-500'
+              }`}
             />
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Mapped in ESP32 firmware for automated telemetry detection.
-            </p>
+            {pinError ? (
+              <div className="mt-2 flex items-start gap-2 rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-500 dark:text-red-400">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>{pinError}</span>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                Mapped in ESP32 firmware for automated telemetry detection.
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
@@ -193,8 +226,8 @@ export default function AddSlotModal({ isOpen, onClose, onSlotAdded }) {
             </button>
             <button
               type="submit"
-              disabled={loading}
-              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-xl text-xs font-medium shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50"
+              disabled={loading || Boolean(pinError)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white rounded-xl text-xs font-medium shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />

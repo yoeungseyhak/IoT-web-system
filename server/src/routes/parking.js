@@ -2,6 +2,7 @@ const express = require('express');
 const { getDb } = require('../database');
 const { authenticateToken, requireAdmin } = require('../middleware/auth');
 const { broadcastToAll } = require('../websocket');
+const { validateHardwarePin, findPinConflict } = require('../utils/pinValidator');
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -46,16 +47,26 @@ router.post('/slots', requireAdmin, (req, res) => {
     }
 
     const db = getDb();
-    
+    const pinVal = sensor_pin ? sensor_pin.trim() : '';
+    const controllerVal = controller_id ? controller_id.trim() : '';
+
+    const pinCheck = validateHardwarePin(pinVal, { allowInputOnly: true });
+    if (!pinCheck.valid) {
+      return res.status(pinCheck.status).json({ message: pinCheck.message });
+    }
+    const conflict = findPinConflict(db, { pin: pinVal, controllerId: controllerVal });
+    if (conflict) {
+      return res.status(409).json({ message: conflict.message });
+    }
+
     // Generate clean slot ID
     const count = db.prepare('SELECT COUNT(*) as count FROM parking_slots').get().count;
     const generatedId = `slot-${Date.now().toString(36)}-${count + 1}`;
-    const controllerVal = controller_id ? controller_id.trim() : '';
 
     db.prepare(`
       INSERT INTO parking_slots (id, name, sensor_pin, sensor_type, controller_id, occupied)
       VALUES (?, ?, ?, ?, ?, 0)
-    `).run(generatedId, name.trim(), sensor_pin || '', sensor_type || 'ultrasonic', controllerVal);
+    `).run(generatedId, name.trim(), pinVal, sensor_type || 'ultrasonic', controllerVal);
 
     const newSlot = db.prepare(`
       SELECT p.*, c.name as controller_name 
@@ -101,9 +112,18 @@ router.put('/slots/:id', requireAdmin, (req, res) => {
     }
 
     const updatedName = (name !== undefined && name.trim()) ? name.trim() : existing.name;
-    const updatedPin = sensor_pin !== undefined ? sensor_pin.trim() : existing.sensor_pin;
+    const updatedPin = sensor_pin !== undefined ? sensor_pin.trim() : (existing.sensor_pin || '');
     const updatedType = sensor_type !== undefined ? sensor_type.trim() : existing.sensor_type;
-    const updatedController = controller_id !== undefined ? controller_id.trim() : existing.controller_id;
+    const updatedController = controller_id !== undefined ? (controller_id || '').trim() : (existing.controller_id || '');
+
+    const pinCheck = validateHardwarePin(updatedPin, { allowInputOnly: true });
+    if (!pinCheck.valid) {
+      return res.status(pinCheck.status).json({ message: pinCheck.message });
+    }
+    const conflict = findPinConflict(db, { pin: updatedPin, controllerId: updatedController, excludeSlotId: id });
+    if (conflict) {
+      return res.status(409).json({ message: conflict.message });
+    }
 
     db.prepare(`
       UPDATE parking_slots 
